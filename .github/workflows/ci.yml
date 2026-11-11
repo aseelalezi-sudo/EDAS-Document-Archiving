@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: SPA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run check:secrets
+      - run: npm test
+      - run: npm run build
+
+  api:
+    name: API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            api/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      - run: npm run shared:build
+      - run: npm ci --prefix api
+      - run: npm --prefix api run prisma:generate
+      - run: npm run api:typecheck
+      - run: npm run api:lint
+      - run: npm run api:test
+      - run: npm run api:build
+
+  e2e:
+    name: API end-to-end
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            api/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      - run: npm run shared:build
+      - run: npm ci --prefix api
+      - run: npm --prefix api run prisma:generate
+      - run: npm run api:build
+      - run: pwsh -NoProfile -File scripts/e2e.ps1
+      - name: API logs on failure
+        if: failure()
+        run: |
+          echo "--- api-out ---"; tail -n 80 /tmp/edas-e2e/api-out.log 2>/dev/null || true
+          echo "--- api-err ---"; tail -n 80 /tmp/edas-e2e/api-err.log 2>/dev/null || true
+          docker logs edas-kc-e2e 2>&1 | tail -n 40 || true

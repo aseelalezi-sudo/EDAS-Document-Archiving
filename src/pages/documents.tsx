@@ -1,0 +1,9 @@
+export { AllDocuments } from "./documents-all";
+export { Trash } from "./documents-trash";
+export { Library } from "./documents-library";
+export { FolderDetails } from "./documents-folder-details";
+export { NewDocument } from "./documents-new";
+export { EditDocument } from "./documents-edit";
+export { DocumentDetails } from "./documents-view";
+export { DocumentPreview } from "./documents-preview";
+export { Versions } from "./documents-versions";

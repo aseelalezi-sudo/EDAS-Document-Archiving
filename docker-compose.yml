@@ -1,0 +1,136 @@
+name: edas
+
+# Local development stack only. Every credential below is a documented development default and is
+# passed through an environment variable so a deployment can override it. The API refuses to start
+# with NODE_ENV=production while any of these defaults is still in place (see
+# api/src/common/config/env.validation.ts).
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: edas
+      POSTGRES_USER: edas
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-edas_dev_pw}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U edas -d edas"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: http://localhost:8080
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./infra/keycloak:/opt/keycloak/data/import:ro
+
+  minio:
+    image: ${MINIO_IMAGE:-bitnamilegacy/minio:latest}
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-edas_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-edas_minio_dev_pw}
+      MINIO_BROWSER: "on"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/bitnami/minio/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  minio-init:
+    image: ${AWS_CLI_IMAGE:-amazon/aws-cli:latest}
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-edas_minio}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-edas_minio_dev_pw}
+      AWS_DEFAULT_REGION: us-east-1
+      MINIO_BUCKET: ${MINIO_BUCKET:-edas-documents}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        until aws --endpoint-url http://minio:9000 s3api create-bucket --bucket "$$MINIO_BUCKET" 2>/dev/null || aws --endpoint-url http://minio:9000 s3api head-bucket --bucket "$$MINIO_BUCKET"; do sleep 2; done
+        aws --endpoint-url http://minio:9000 s3api put-bucket-acl --bucket "$$MINIO_BUCKET" --acl private
+        echo "MinIO bucket ready"
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+      minio:
+        condition: service_started
+    environment:
+      NODE_ENV: development
+      PORT: "4000"
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173}
+      DATABASE_URL: postgresql://edas:${POSTGRES_PASSWORD:-edas_dev_pw}@postgres:5432/edas?schema=public
+      KEYCLOAK_ISSUER: http://localhost:8080/realms/edas
+      KEYCLOAK_JWKS_URI: http://keycloak:8080/realms/edas/protocol/openid-connect/certs
+      KEYCLOAK_INTERNAL_ISSUER: http://keycloak:8080/realms/edas
+      KEYCLOAK_AUDIENCE: edas-api
+      KEYCLOAK_CLIENT_ID: edas-web
+      KEYCLOAK_ADMIN_BASE_URL: http://keycloak:8080
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: "9000"
+      MINIO_USE_SSL: "false"
+      MINIO_PUBLIC_ENDPOINT: localhost
+      MINIO_PUBLIC_PORT: "9000"
+      MINIO_BUCKET: ${MINIO_BUCKET:-edas-documents}
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-edas_minio}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-edas_minio_dev_pw}
+      DOWNLOAD_TICKET_SECRET: ${DOWNLOAD_TICKET_SECRET:-}
+      API_PUBLIC_URL: ${API_PUBLIC_URL:-}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:5173}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      BODY_LIMIT: ${BODY_LIMIT:-2mb}
+      THROTTLE_TTL_MS: ${THROTTLE_TTL_MS:-60000}
+      THROTTLE_LIMIT: ${THROTTLE_LIMIT:-600}
+    ports:
+      - "4000:4000"
+    command:
+      - sh
+      - -c
+      - cd api && npx prisma migrate deploy && node dist/main.js
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:4000/api/v1/health/ready').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  pgdata:
+  miniodata:

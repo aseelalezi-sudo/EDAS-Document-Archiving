@@ -1,0 +1,735 @@
+// EDAS — Prisma schema (PostgreSQL)
+// Core domain of the document archiving system.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums
+
+enum UserRole {
+  EMPLOYEE
+  SUPERVISOR
+  DEPT_MANAGER
+  ARCHIVIST
+  AUDITOR
+  SYSTEM_ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  LOCKED
+}
+
+enum FolderType {
+  DEPARTMENT
+  PROJECT
+  PERSONAL
+  SYSTEM
+}
+
+enum FolderScope {
+  PUBLIC
+  DEPARTMENT
+  SECTION
+  PRIVATE
+}
+
+enum DocumentStatus {
+  DRAFT
+  IN_REVIEW
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+  DISPOSED
+}
+
+enum Classification {
+  PUBLIC
+  INTERNAL
+  CONFIDENTIAL
+  SECRET
+}
+
+enum SignatureStatus {
+  NONE
+  PENDING
+  SIGNED
+}
+
+enum AclPrincipal {
+  USER
+  ROLE
+  DEPARTMENT
+}
+
+enum AclAction {
+  VIEW
+  CREATE
+  EDIT
+  DELETE
+  APPROVE
+  EXPORT
+}
+
+enum AclEffect {
+  ALLOW
+  DENY
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SKIPPED
+}
+
+enum RetentionAction {
+  REVIEW
+  ARCHIVE
+  DESTROY
+}
+
+enum HoldStatus {
+  ACTIVE
+  RELEASED
+}
+
+enum NotificationLevel {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+enum ReportCadence {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+}
+
+// ---------------------------------------------------------------- organisation
+
+model Department {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String   @unique
+  name      String
+  nameEn    String?
+  manager   String?
+  order     Int      @default(0)
+  parentId  String?  @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parent            Department?       @relation("DepartmentTree", fields: [parentId], references: [id])
+  children          Department[]      @relation("DepartmentTree")
+  sections          Section[]
+  users             User[]
+  employees         Employee[]
+  projects          Project[]
+  folders           Folder[]
+  documents         Document[]
+  retentionPolicies RetentionPolicy[]
+  reportSchedules   ReportSchedule[]
+  reportRuns        ReportRun[]
+}
+
+model Section {
+  id           String   @id @default(uuid()) @db.Uuid
+  code         String   @unique
+  name         String
+  nameEn       String?
+  manager      String?
+  order        Int      @default(0)
+  departmentId String   @db.Uuid
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  department Department @relation(fields: [departmentId], references: [id])
+  users      User[]
+  employees  Employee[]
+  documents  Document[]
+}
+
+model Employee {
+  id           String     @id @default(uuid()) @db.Uuid
+  empNo        String     @unique
+  name         String
+  nameEn       String?
+  jobTitle     String?
+  jobTitleEn   String?
+  email        String?
+  phone        String?
+  status       UserStatus @default(ACTIVE)
+  departmentId String?    @db.Uuid
+  sectionId    String?    @db.Uuid
+  userId       String?    @unique @db.Uuid
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  department Department? @relation(fields: [departmentId], references: [id])
+  section    Section?    @relation(fields: [sectionId], references: [id])
+  user       User?       @relation(fields: [userId], references: [id])
+}
+
+model Project {
+  id           String    @id @default(uuid()) @db.Uuid
+  code         String    @unique
+  name         String
+  nameEn       String?
+  status       String    @default("active")
+  startDate    DateTime?
+  endDate      DateTime?
+  departmentId String?   @db.Uuid
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  department Department? @relation(fields: [departmentId], references: [id])
+  folders    Folder[]
+  documents  Document[]
+}
+
+// ---------------------------------------------------------------- users
+
+model User {
+  id             String     @id @default(uuid()) @db.Uuid
+  keycloakSub    String     @unique
+  username       String     @unique
+  name           String
+  nameEn         String?
+  email          String     @unique
+  jobTitle       String?
+  jobTitleEn     String?
+  phone          String?
+  role           UserRole   @default(EMPLOYEE)
+  status         UserStatus @default(ACTIVE)
+  departmentId   String?    @db.Uuid
+  sectionId      String?    @db.Uuid
+  lastLoginAt    DateTime?
+  failedAttempts Int        @default(0)
+  activeSessions Int        @default(0)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  department       Department?       @relation(fields: [departmentId], references: [id])
+  section          Section?          @relation(fields: [sectionId], references: [id])
+  employee         Employee?
+  groupMemberships GroupMember[]
+  ownedDocuments   Document[]        @relation("DocumentOwner")
+  checkouts        Document[]        @relation("DocumentCheckout")
+  signedDocuments  Document[]        @relation("DocumentSigner")
+  deletedDocuments Document[]        @relation("DocumentDeleter")
+  versionUploads   DocumentVersion[] @relation("VersionAuthor")
+  holdsPlaced      LegalHold[]       @relation("HoldPlacedBy")
+  holdsReleased    LegalHold[]       @relation("HoldReleasedBy")
+  sessions         UserSession[]
+  notifications    Notification[]
+  savedSearches    SavedSearch[]
+  approvalDecisions ApprovalDecision[]
+  reportRuns       ReportRun[]
+  tasksAssigned    TaskItem[]        @relation("TaskAssignee")
+  tasksCreated     TaskItem[]        @relation("TaskCreator")
+  taskComments     TaskComment[]
+}
+
+// Server-side browser sessions held by the API (BFF): the cookie only carries
+// an opaque id, while the OIDC tokens live here encrypted with SESSION_SECRET.
+model UserSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  keycloakSub      String
+  accessToken      String
+  refreshToken     String?
+  idToken          String?
+  accessExpiresAt  DateTime
+  refreshExpiresAt DateTime?
+  createdAt        DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  userAgent        String?
+  ip               String?
+
+  user User @relation(fields: [keycloakSub], references: [keycloakSub], onDelete: Cascade)
+
+  @@index([keycloakSub])
+  @@index([refreshExpiresAt])
+}
+
+// ---------------------------------------------------------------- folders & files
+
+model Folder {
+  id           String      @id @default(uuid()) @db.Uuid
+  name         String
+  nameEn       String?
+  type         FolderType  @default(DEPARTMENT)
+  scope        FolderScope @default(DEPARTMENT)
+  path         String      @default("/")
+  aclInherit   Boolean     @default(true)
+  parentId     String?     @db.Uuid
+  departmentId String?     @db.Uuid
+  projectId    String?     @db.Uuid
+  ownerId      String?     @db.Uuid
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  parent     Folder?     @relation("FolderTree", fields: [parentId], references: [id])
+  children   Folder[]    @relation("FolderTree")
+  department Department? @relation(fields: [departmentId], references: [id])
+  project    Project?    @relation(fields: [projectId], references: [id])
+  acl        AclRule[]
+  documents  Document[]
+
+  @@index([parentId])
+  @@index([path])
+}
+
+model FileObject {
+  id             String   @id @default(uuid()) @db.Uuid
+  bucket         String
+  storageKey     String   @unique
+  originalName   String
+  mimeType       String
+  sizeBytes      BigInt   @default(0)
+  checksumSha256 String
+  uploadedById   String?  @db.Uuid
+  createdAt      DateTime @default(now())
+
+  versions DocumentVersion[]
+}
+
+model UploadIntent {
+  id         String    @id @default(uuid()) @db.Uuid
+  storageKey String    @unique
+  actorId    String    @db.Uuid
+  mimeType   String
+  maxBytes   Int
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([actorId, expiresAt])
+}
+
+model DownloadTicketUse {
+  nonce     String   @id
+  kind      String
+  entityId  String
+  sub       String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------- documents
+
+model Document {
+  id              String          @id @default(uuid()) @db.Uuid
+  docNo           String          @unique
+  title           String
+  titleEn         String?
+  description     String?
+  category        String?
+  classification  Classification  @default(INTERNAL)
+  status          DocumentStatus  @default(DRAFT)
+  isRecord        Boolean         @default(false)
+  currentVersion  Int             @default(1)
+  fileType        String?
+  sizeBytes       BigInt          @default(0)
+  tags            String[]        @default([])
+  retentionEnd    DateTime?
+  folderId        String?         @db.Uuid
+  departmentId    String?         @db.Uuid
+  sectionId       String?         @db.Uuid
+  projectId       String?         @db.Uuid
+  ownerId         String?         @db.Uuid
+  checkedOutById  String?         @db.Uuid
+  checkedOutAt    DateTime?
+  signatureStatus SignatureStatus @default(NONE)
+  signedById      String?         @db.Uuid
+  signedAt        DateTime?
+  deletedAt       DateTime?
+  deletedById     String?         @db.Uuid
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  folder         Folder?             @relation(fields: [folderId], references: [id])
+  department     Department?         @relation(fields: [departmentId], references: [id])
+  section        Section?            @relation(fields: [sectionId], references: [id])
+  project        Project?            @relation(fields: [projectId], references: [id])
+  owner          User?               @relation("DocumentOwner", fields: [ownerId], references: [id])
+  checkedOutBy   User?               @relation("DocumentCheckout", fields: [checkedOutById], references: [id])
+  signedBy       User?               @relation("DocumentSigner", fields: [signedById], references: [id])
+  deletedBy      User?               @relation("DocumentDeleter", fields: [deletedById], references: [id])
+  versions       DocumentVersion[]
+  retentionItems RetentionItem[]
+  holds          LegalHoldDocument[]
+  approvals      ApprovalInstance[]
+  tasks          TaskItem[]
+
+  @@index([folderId])
+  @@index([departmentId])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([checkedOutById])
+}
+
+model DocumentVersion {
+  id          String   @id @default(uuid()) @db.Uuid
+  documentId  String   @db.Uuid
+  fileId      String   @db.Uuid
+  version     Int
+  comment     String?
+  isCurrent   Boolean  @default(false)
+  createdById String?  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  document  Document   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  file      FileObject @relation(fields: [fileId], references: [id])
+  createdBy User?      @relation("VersionAuthor", fields: [createdById], references: [id])
+
+  @@unique([documentId, version])
+}
+
+// ---------------------------------------------------------------- access control
+
+model AclRule {
+  id            String       @id @default(uuid()) @db.Uuid
+  folderId      String       @db.Uuid
+  principalType AclPrincipal
+  principalId   String
+  actions       AclAction[]  @default([])
+  effect        AclEffect    @default(ALLOW)
+  createdAt     DateTime     @default(now())
+
+  folder Folder @relation(fields: [folderId], references: [id])
+
+  @@unique([folderId, principalType, principalId])
+}
+
+// ---------------------------------------------------------------- approvals
+
+model ApprovalChain {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  steps     ApprovalStep[]
+  instances ApprovalInstance[]
+}
+
+model ApprovalStep {
+  id        String   @id @default(uuid()) @db.Uuid
+  chainId   String   @db.Uuid
+  order     Int
+  role      UserRole
+  name      String?
+  createdAt DateTime @default(now())
+
+  chain ApprovalChain @relation(fields: [chainId], references: [id])
+
+  @@unique([chainId, order])
+}
+
+model ApprovalInstance {
+  id          String         @id @default(uuid()) @db.Uuid
+  documentId  String         @db.Uuid
+  chainId     String?        @db.Uuid
+  status      ApprovalStatus @default(PENDING)
+  startedById String?        @db.Uuid
+  startedAt   DateTime       @default(now())
+  completedAt DateTime?
+
+  document  Document           @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  chain     ApprovalChain?     @relation(fields: [chainId], references: [id])
+  decisions ApprovalDecision[]
+}
+
+model ApprovalDecision {
+  id          String         @id @default(uuid()) @db.Uuid
+  instanceId  String         @db.Uuid
+  stepOrder   Int
+  decision    ApprovalStatus
+  comment     String?
+  decidedById String?        @db.Uuid
+  decidedAt   DateTime       @default(now())
+
+  instance ApprovalInstance @relation(fields: [instanceId], references: [id])
+  decidedBy User?            @relation(fields: [decidedById], references: [id], onDelete: SetNull)
+
+  @@unique([instanceId, stepOrder])
+  @@index([decidedById])
+}
+
+// ---------------------------------------------------------------- retention & legal holds
+
+model RetentionPolicy {
+  id              String          @id @default(uuid()) @db.Uuid
+  name            String
+  description     String?
+  category        String?
+  legalBasis      String?
+  retentionMonths Int
+  action          RetentionAction
+  isActive        Boolean         @default(true)
+  departmentId    String?         @db.Uuid
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  department Department?     @relation(fields: [departmentId], references: [id])
+  items      RetentionItem[]
+}
+
+model RetentionItem {
+  id         String          @id @default(uuid()) @db.Uuid
+  documentId String          @db.Uuid
+  policyId   String          @db.Uuid
+  dueAt      DateTime
+  action     RetentionAction
+  status     String          @default("scheduled")
+  executedAt DateTime?
+  createdAt  DateTime        @default(now())
+
+  document Document        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  policy   RetentionPolicy @relation(fields: [policyId], references: [id])
+
+  @@unique([documentId, policyId])
+}
+
+model LegalHold {
+  id           String     @id @default(uuid()) @db.Uuid
+  caseNo       String
+  reason       String
+  status       HoldStatus @default(ACTIVE)
+  placedById   String?    @db.Uuid
+  placedAt     DateTime   @default(now())
+  releasedById String?    @db.Uuid
+  releasedAt   DateTime?
+
+  placedBy   User? @relation("HoldPlacedBy", fields: [placedById], references: [id])
+  releasedBy User? @relation("HoldReleasedBy", fields: [releasedById], references: [id])
+
+  documents LegalHoldDocument[]
+}
+
+model LegalHoldDocument {
+  id         String   @id @default(uuid()) @db.Uuid
+  holdId     String   @db.Uuid
+  documentId String   @db.Uuid
+  addedAt    DateTime @default(now())
+
+  hold     LegalHold @relation(fields: [holdId], references: [id])
+  document Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([holdId, documentId])
+}
+
+// ---------------------------------------------------------------- audit & notifications
+
+model ReportTemplate {
+  id         String   @id
+  name       String
+  nameEn     String
+  category   String
+  categoryEn String
+  desc       String
+  descEn     String
+  icon       String   @default("bar")
+  favorite   Boolean  @default(false)
+  schedule   String   @default("—")
+  lastRun    String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Group {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  nameEn    String?
+  desc      String
+  scope     String
+  type      String   @default("functional")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members GroupMember[]
+}
+
+model GroupMember {
+  id        String   @id @default(uuid()) @db.Uuid
+  groupId   String   @db.Uuid
+  userId    String   @db.Uuid
+  role      String   @default("member")
+  createdAt DateTime @default(now())
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+}
+
+model AuditEvent {
+  id            String   @id @default(uuid()) @db.Uuid
+  seq           BigInt   @unique @default(autoincrement())
+  ts            DateTime @default(now())
+  action        String
+  entityType    String
+  entityId      String?
+  actorId       String?  @db.Uuid
+  actorName     String?
+  departmentId  String?  @db.Uuid
+  ip            String?
+  userAgent     String?
+  result        String   @default("success")
+  correlationId String?
+  detail        Json?
+  hashVersion   Int      @default(1)
+  prevHash      String?
+  hash          String?
+
+  @@index([ts])
+  @@index([entityType, entityId])
+  @@index([actorId])
+}
+
+model Notification {
+  id         String            @id @default(uuid()) @db.Uuid
+  userId     String?           @db.Uuid
+  title      String
+  message    String
+  level      NotificationLevel @default(INFO)
+  read       Boolean           @default(false)
+  entityType String?
+  entityId   String?
+  createdAt  DateTime          @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
+
+model Setting {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model SavedSearch {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  name      String
+  query     Json
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model TaskItem {
+  id          String        @id @default(uuid()) @db.Uuid
+  title       String
+  description String?
+  documentId  String?       @db.Uuid
+  assigneeId  String?       @db.Uuid
+  createdById String?       @db.Uuid
+  status      String        @default("open")
+  priority    String        @default("normal")
+  dueAt       DateTime?
+  createdAt   DateTime      @default(now())
+  completedAt DateTime?
+  comments    TaskComment[]
+
+  document  Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  assignee  User?     @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy User?     @relation("TaskCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([assigneeId, status])
+  @@index([documentId])
+  @@index([createdById])
+}
+
+model TaskComment {
+  id         String   @id @default(uuid()) @db.Uuid
+  taskId     String   @db.Uuid
+  authorId   String?  @db.Uuid
+  authorName String?
+  body       String
+  createdAt  DateTime @default(now())
+
+  task TaskItem @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  author User?  @relation(fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([taskId, createdAt])
+  @@index([authorId])
+}
+
+// ---------------------------------------------------------------- reports
+
+model ReportSchedule {
+  id           String        @id @default(uuid()) @db.Uuid
+  name         String
+  reportType   String
+  cadence      ReportCadence
+  recipients   String[]      @default([])
+  filters      Json?
+  isActive     Boolean       @default(true)
+  nextRunAt    DateTime?
+  departmentId String?       @db.Uuid
+  createdAt    DateTime      @default(now())
+
+  runs ReportRun[]
+
+  department Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@index([departmentId])
+  @@index([isActive, nextRunAt])
+}
+
+model ReportRun {
+  id            String    @id @default(uuid()) @db.Uuid
+  scheduleId    String?   @db.Uuid
+  reportType    String
+  format        String    @default("pdf")
+  status        String    @default("queued")
+  requestedById String?   @db.Uuid
+  fileId        String?   @db.Uuid
+  departmentId  String?   @db.Uuid
+  createdAt     DateTime  @default(now())
+  completedAt   DateTime?
+
+  schedule ReportSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  requestedBy User?        @relation(fields: [requestedById], references: [id], onDelete: SetNull)
+  department  Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@index([scheduleId])
+  @@index([departmentId, createdAt])
+  @@index([requestedById])
+}
+
+model RolePolicy {
+  role        UserRole    @id
+  actions     AclAction[]
+  updatedAt   DateTime    @updatedAt
+  updatedById String?     @db.Uuid
+}
+
+model NotificationTemplate {
+  id        String   @id
+  name      String
+  nameEn    String
+  channel   String   @default("IN_APP")
+  subject   String
+  subjectEn String
+  body      String
+  bodyEn    String
+  updatedAt DateTime @updatedAt
+}
