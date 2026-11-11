@@ -845,6 +845,8 @@ describe("PreviewService disk hygiene", () => {
 
     expect(workDir).not.toBe("");
     expect(workDir).not.toBe(dir);
-    await expect(stat(workDir)).rejects.toThrow();
+    await vi.waitFor(async () => {
+      await expect(stat(workDir)).rejects.toThrow();
+    });
   });
 });

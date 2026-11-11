@@ -31,12 +31,14 @@ class FakeResponse extends Writable {
   }
 }
 
-function build(object: {
-  body?: Buffer;
-  contentLength?: number;
-  contentRange?: string | null;
-  contentType?: string;
-} = {}) {
+function build(
+  object: {
+    body?: Buffer;
+    contentLength?: number;
+    contentRange?: string | null;
+    contentType?: string;
+  } = {},
+) {
   const body = object.body ?? Buffer.from("%PDF-1.7\n");
   const preview = {
     resolveContent: vi.fn().mockResolvedValue({
@@ -140,5 +142,65 @@ describe("PreviewController.content", () => {
 
     expect(preview.resolveContent).toHaveBeenCalledWith(principal, "file-1", "preview");
     expect(preview.resolveContent).not.toHaveBeenCalledWith(principal, "file-1", "original");
+  });
+
+  it("answers 416 when storage itself refuses the range", async () => {
+    const { controller, storage } = build();
+    storage.getObjectStream.mockRejectedValue({ $metadata: { httpStatusCode: 416 } });
+
+    const response = await stream(controller, "bytes=0-1");
+
+    expect(response.statusCode).toBe(416);
+    expect(response.headers.get("content-range")).toBe(`bytes */${"%PDF-1.7\n".length}`);
+  });
+
+  it("aborts with 502 when the object stream breaks mid-flight", async () => {
+    const { controller, storage } = build();
+    const body = new Readable({ read() {} });
+    storage.getObjectStream.mockResolvedValue({ body, contentLength: 9, contentRange: null, contentType: "application/pdf" });
+    const response = new FakeResponse();
+
+    await controller.content(principal, "file-1", "original", undefined, response as unknown as Response);
+    body.emit("error", new Error("socket hang up"));
+
+    expect(response.statusCode).toBe(502);
+    body.destroy();
+    response.destroy();
+  });
+});
+
+describe("PreviewController delegation", () => {
+  function delegated() {
+    const preview = {
+      capabilities: vi.fn().mockResolvedValue({ office: { available: true } }),
+      getPreview: vi.fn().mockResolvedValue({ status: "ready" }),
+      retry: vi.fn().mockResolvedValue({ status: "converting" }),
+      cleanupCache: vi.fn().mockResolvedValue({ removed: 0 }),
+      resolveContent: vi.fn(),
+    };
+    const controller = new PreviewController(preview as never, { getObjectStream: vi.fn() } as never);
+    return { controller, preview };
+  }
+
+  it("forwards the capability probe, the preview read and the retry", async () => {
+    const { controller, preview } = delegated();
+
+    await expect(controller.capabilities()).resolves.toEqual({ office: { available: true } });
+    await expect(controller.get(principal, "file-1")).resolves.toEqual({ status: "ready" });
+    await expect(controller.retry(principal, "file-1")).resolves.toEqual({ status: "converting" });
+
+    expect(preview.capabilities).toHaveBeenCalledWith();
+    expect(preview.getPreview).toHaveBeenCalledWith(principal, "file-1");
+    expect(preview.retry).toHaveBeenCalledWith(principal, "file-1");
+  });
+
+  it("forwards the cleanup window, including an omitted one", async () => {
+    const { controller, preview } = delegated();
+
+    await controller.cleanup(principal, { olderThanDays: 7 });
+    await controller.cleanup(principal, {});
+
+    expect(preview.cleanupCache).toHaveBeenNthCalledWith(1, principal, 7);
+    expect(preview.cleanupCache).toHaveBeenNthCalledWith(2, principal, undefined);
   });
 });
