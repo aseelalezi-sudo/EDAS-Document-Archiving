@@ -22,7 +22,8 @@ export class MetricsController {
     }
 
     const body = await this.metrics.scrape();
+    response.status(200);
     response.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-    response.status(200).send(body);
+    response.end(body);
   }
 }

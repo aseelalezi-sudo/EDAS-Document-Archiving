@@ -13,7 +13,7 @@ function response() {
   const res = {
     status: vi.fn(),
     setHeader: vi.fn(),
-    send: vi.fn(),
+    end: vi.fn(),
   };
   res.status.mockReturnValue(res);
   return res as unknown as Response & typeof res;
@@ -30,7 +30,7 @@ describe("MetricsController", () => {
 
     expect(res.status).toHaveBeenCalledWith(200);
     expect(res.setHeader).toHaveBeenCalledWith("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
-    expect(String(res.send.mock.calls[0][0])).toContain("edas_http_requests_total");
+    expect(String(res.end.mock.calls[0][0])).toContain("edas_http_requests_total");
   });
 
   it("requires the configured bearer token", async () => {
