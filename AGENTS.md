@@ -39,7 +39,7 @@ Always verify changes with:
 - Verify backend changes with: `cd api && npm run typecheck && npm run lint && npm test && npm audit --audit-level=high && npm run build`.
   Coverage is enforced by `api/vitest.config.ts` (thresholds 67 statements / 62 branches / 58 functions / 69 lines);
   run it with `cd api && npm run test:coverage` (the root `npm run api:test:coverage` builds `@edas/shared` first).
-  The SPA gate lives in the root `vitest.config.ts` (34 / 27 / 29 / 35).
+  The SPA gate lives in the root `vitest.config.ts` (36 / 29 / 31 / 37).
 - Repair documents whose stored `departmentId` drifted from their folder with
   `cd api && npm run build && npm run maintenance:reconcile-departments` (dry run; `-- --apply` writes the
   fix and signs a `document.reconcile_department` audit event per document inside the same transaction).
