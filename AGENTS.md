@@ -92,9 +92,11 @@ Always verify changes with:
   disable with `PREVIEW_PREWARM=off`),
   `approvals` (chains / instances / decisions), `retention` (policies / items), `legal-holds`,
 `notifications`, `notification-templates` (seeded catalog, admin CRUD/reset), `tasks`, `reports` (schedules / runs / summary; runs export CSV, Excel (SpreadsheetML) or an RTL PDF (`pdfkit` + `bidi-shaper`, Amiri font under `api/assets`) to object storage and
-serve `/reports/runs/:id/download`), `report-templates`, `roles` (per-role capability overrides stored in `RolePolicy`; `/roles` GET for admin/manager/auditor, PATCH/DELETE for system admin), `saved-searches`, `settings`, `audit` (hash-chained), `metrics` (Prometheus text at `/metrics`; `METRICS_TOKEN` required to expose it in production). Mutating
+serve `/reports/runs/:id/download`), `report-templates`, `roles` (per-role capability overrides stored in `RolePolicy`; `/roles` GET for admin/manager/auditor, PATCH/DELETE for system admin), `saved-searches`, `settings`, `audit` (hash-chained), `metrics` (Prometheus text at `/api/v1/metrics`; `METRICS_TOKEN` required to expose it in production). Mutating
 endpoints must write an audit event.
 - Root ESLint/tsconfig exclude `api/`; the API has its own `eslint.config.mjs` and `tsconfig.json`.
+- Prometheus scrape config and alert rules live in `infra/monitoring/` (no extra compose service);
+  validate edits with `promtool check config` / `check rules` before committing.
 - No git history baseline yet; make small, focused changes.
 - Node tooling note: `eslint-plugin-jsx-a11y` declares a peer range up to ESLint 9 while
   the repo uses ESLint 10, so dependency installs may need `--legacy-peer-deps`. When

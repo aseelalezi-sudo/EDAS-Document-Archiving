@@ -1,0 +1,70 @@
+groups:
+  - name: edas-api
+    rules:
+      - alert: EdasApiDown
+        expr: up{job="edas-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: EDAS API is not answering scrapes
+          description: Prometheus has failed to scrape {{ $labels.instance }} for two minutes.
+
+      - alert: EdasApiReadinessFailing
+        expr: sum(rate(edas_http_requests_total{job="edas-api",route="/api/v1/health/ready",status="503"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: EDAS readiness probe returns 503
+          description: The API cannot reach PostgreSQL, so /api/v1/health/ready has been failing for five minutes.
+
+      - alert: EdasApiHighErrorRate
+        expr: |
+          (
+            sum(rate(edas_http_requests_total{job="edas-api",status=~"5.."}[5m]))
+            /
+            clamp_min(sum(rate(edas_http_requests_total{job="edas-api"}[5m])), 1)
+          ) > 0.02
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: EDAS API 5xx rate is above 2%
+          description: More than one request in fifty has failed with a server error over the last ten minutes.
+
+      - alert: EdasApiSlowRequests
+        expr: histogram_quantile(0.95, sum by (le) (rate(edas_http_request_duration_seconds_bucket{job="edas-api",route!="/api/v1/metrics"}[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: EDAS API p95 latency is above one second
+          description: The 95th percentile of request duration has stayed above one second for ten minutes.
+
+      - alert: EdasApiInFlightBacklog
+        expr: edas_http_requests_in_flight{job="edas-api"} > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: EDAS API has more than fifty requests in flight
+          description: Requests are piling up; check database latency and the preview converter.
+
+      - alert: EdasApiMemoryHigh
+        expr: edas_process_resident_memory_bytes{job="edas-api"} > 1.2e9
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: EDAS API resident memory is above 1.2 GB
+          description: The process has held more than 1.2 GB for ten minutes; inspect document previews and report runs.
+
+      - alert: EdasApiEventLoopLag
+        expr: edas_nodejs_eventloop_lag_p99_seconds{job="edas-api"} > 0.25
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: EDAS API event loop lags behind
+          description: The 99th percentile event loop lag is above 250 ms, which delays every request.
