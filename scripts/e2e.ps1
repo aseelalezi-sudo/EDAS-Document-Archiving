@@ -13,6 +13,8 @@ $tokenUrl = "http://localhost:$kcPort/realms/edas/protocol/openid-connect/token"
 $base = "http://localhost:$apiPort/api/v1"
 $apiProc = $null
 $s3Proc = $null
+$hiddenWindow = @{}
+if ($IsWindows) { $hiddenWindow['WindowStyle'] = 'Hidden' }
 $prisma = Join-Path $apiDir 'node_modules/.bin/prisma'
 if ($IsWindows) { $prisma = "$prisma.cmd" }
 $schema = Join-Path $apiDir 'prisma/schema.prisma'
@@ -63,7 +65,7 @@ try {
 
   # --- s3 mock + api ---
   $s3Script = Join-Path $PSScriptRoot 's3mock.cjs'
-  $s3Proc = Start-Process -FilePath 'node' -ArgumentList "`"$s3Script`" $s3Port" -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $tmp 's3-out.log') -RedirectStandardError (Join-Path $tmp 's3-err.log')
+  $s3Proc = Start-Process -FilePath 'node' -ArgumentList "`"$s3Script`" $s3Port" -PassThru @hiddenWindow -RedirectStandardOutput (Join-Path $tmp 's3-out.log') -RedirectStandardError (Join-Path $tmp 's3-err.log')
   Start-Sleep -Seconds 2
 
   $env:PORT = "$apiPort"
@@ -78,7 +80,7 @@ try {
   $env:MINIO_ACCESS_KEY = 'edas_minio'
   $env:MINIO_SECRET_KEY = 'edas_minio_dev_pw'
   $env:THROTTLE_LIMIT = '100000'
-  $apiProc = Start-Process -FilePath 'node' -ArgumentList 'dist/main.js' -WorkingDirectory $apiDir -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $tmp 'api-out.log') -RedirectStandardError (Join-Path $tmp 'api-err.log')
+  $apiProc = Start-Process -FilePath 'node' -ArgumentList 'dist/main.js' -WorkingDirectory $apiDir -PassThru @hiddenWindow -RedirectStandardOutput (Join-Path $tmp 'api-out.log') -RedirectStandardError (Join-Path $tmp 'api-err.log')
 
   $up = $false
   for ($i = 0; $i -lt 30; $i++) {

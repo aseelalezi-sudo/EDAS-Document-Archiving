@@ -17,7 +17,7 @@ describe("preview helpers", () => {
   });
 
   it("downloads preview content with the session cookie instead of leaving it public", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(["%PDF-1.7"]), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response("%PDF-1.7", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     const blob = await fetchPreviewBlob("/api/v1/preview/files/file-1/content?kind=original");
@@ -31,7 +31,7 @@ describe("preview helpers", () => {
   });
 
   it("forwards an abort signal so a closed preview cancels its request", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(new Blob(["%PDF-1.7"]), { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response("%PDF-1.7", { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const controller = new AbortController();
 
