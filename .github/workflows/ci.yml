@@ -23,6 +23,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --legacy-peer-deps
+      - run: npm audit --audit-level=high
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
@@ -45,6 +46,7 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm run shared:build
       - run: npm ci --prefix api
+      - run: npm audit --audit-level=high --prefix api
       - run: npm --prefix api run prisma:generate
       - run: npm run api:typecheck
       - run: npm run api:lint

@@ -285,6 +285,25 @@ well, so a push never publishes the security review.
 (`git check-ignore -v .env api/.env`), and `npm run check:secrets` fails the build when an environment file other than
 `.env.example` is tracked, when a private key is present, or when a sealing secret is hardcoded in source. CI runs it.
 
+## Dependencies
+
+`npm audit --audit-level=high` runs in CI for both packages after install, so a new high or critical advisory fails the
+build. Both trees were audited and updated; the fixes are pinned in `overrides` because several vulnerable packages are
+transitive and their parents have not released patched versions yet:
+
+| Override | Why |
+| --- | --- |
+| `minimatch@^11` (in `eslint`, `@eslint/config-array`, `@typescript-eslint/typescript-estree`) | the only patched release (11.0.1+) is a major the parents have not adopted |
+| `esbuild@^0.28`, `nanoid@^3.3.20`, `source-map-js@^1.2.2` | patched patch/minor releases under `vite` and `postcss` |
+| `body-parser@^2.4`, `fast-uri@^3.1.9`, `glob@^14`, `deepmerge-ts@^8` | patched releases under `express`, `ajv`, `@nestjs/cli` and `@prisma/config` |
+
+`vite` was upgraded to `7.3.8` and `@nestjs/platform-express` to `11.2.9` (which pins `multer@2.5.0`). The three
+remaining advisories are **low** and limited to the build toolchain: `deepmerge` (`>=4.2.0`) has never published a fix,
+and it only arrives through `@nestjs/cli` → `fork-ts-checker-webpack-plugin`, which is used while building, not at
+runtime. Removing them needs `@nestjs/cli` 12, which requires TypeScript 6 and `@nestjs/schematics` 12 — a toolchain
+migration, not a patch. Revisit the overrides once `eslint`, `@typescript-eslint` and `@nestjs/cli` ship the patched
+transitives themselves.
+
 ## Project structure
 
 ```

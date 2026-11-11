@@ -13,7 +13,7 @@ Guidance for AI coding agents working in this repository.
 - Build (type-check + bundle): `npm run build`
 
 Always verify changes with:
-`npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm run build`
+`npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`
 
 ### Backend (`api/` — separate package)
 
@@ -35,7 +35,7 @@ Always verify changes with:
   policies, approval chains, system settings) with `cd api && npm run prisma:seed`. The seed is idempotent
   (upserts by code/name), leaves documents untouched, and runs `api/prisma/seed.mts` through Node's native
   TypeScript support (Node 22.18+).
-- Verify backend changes with: `cd api && npm run typecheck && npm run lint && npm test && npm run build`.
+- Verify backend changes with: `cd api && npm run typecheck && npm run lint && npm test && npm audit --audit-level=high && npm run build`.
 - Repair documents whose stored `departmentId` drifted from their folder with
   `cd api && npm run build && npm run maintenance:reconcile-departments` (dry run; `-- --apply` writes the
   fix and signs a `document.reconcile_department` audit event per document inside the same transaction).
