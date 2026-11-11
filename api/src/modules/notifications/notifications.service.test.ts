@@ -1,76 +1,180 @@
 import { NotFoundException } from "@nestjs/common";
+import { NotificationLevel } from "@prisma/client";
 import { describe, expect, it, vi } from "vitest";
 import { NotificationsService } from "./notifications.service";
 
-const ACTOR = { id: "user-1", departmentId: "dept-1", role: "EMPLOYEE" };
+const PRINCIPAL = { sub: "user-1" } as never;
+const EMPLOYEE = { id: "user-1", departmentId: "dept-fin", role: "EMPLOYEE" };
+const ADMIN = { id: "user-admin", departmentId: null, role: "SYSTEM_ADMIN" };
 
-function buildService(actor = ACTOR) {
+function buildService(actor: typeof EMPLOYEE | typeof ADMIN = EMPLOYEE) {
   const prisma = {
+    $transaction: vi.fn(),
     notification: {
-      create: vi.fn().mockResolvedValue({ id: "note-1", level: "INFO" }),
+      create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: "note-new", ...data })),
+      createMany: vi.fn(async ({ data }: { data: unknown[] }) => ({ count: data.length })),
+      findMany: vi.fn().mockResolvedValue([{ id: "note-1", title: "اعتماد" }]),
+      count: vi.fn().mockResolvedValue(2),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
-    user: { findUnique: vi.fn().mockResolvedValue({ departmentId: "dept-1" }) },
+    user: {
+      findMany: vi.fn().mockResolvedValue([{ id: "user-2" }, { id: "user-3" }]),
+      findUnique: vi.fn().mockResolvedValue({ departmentId: "dept-fin" }),
+    },
   };
-  const access = { resolveActor: vi.fn().mockResolvedValue(actor), isGlobal: vi.fn().mockReturnValue(false) };
-  const audit = { record: vi.fn().mockResolvedValue({ id: "audit-1" }) };
+  const transaction = prisma.$transaction as unknown as { mockImplementation: (work: (input: unknown) => unknown) => void };
+  transaction.mockImplementation(async (work) => Promise.all(work as Promise<unknown>[]));
+
+  const access = {
+    resolveActor: vi.fn().mockResolvedValue(actor),
+    isGlobal: vi.fn().mockReturnValue(actor.role === "SYSTEM_ADMIN"),
+  };
+  const audit = { record: vi.fn().mockResolvedValue(undefined) };
   return { service: new NotificationsService(prisma as never, access as never, audit as never), prisma, audit };
 }
 
-describe("NotificationsService.markRead", () => {
-  it("marks the notification read and records an audit event", async () => {
+describe("NotificationsService push", () => {
+  it("defaults to a broadcast info notification", async () => {
+    const { service, prisma } = buildService();
+
+    const note = await service.push({ title: "تحديث", message: "نص" });
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: { userId: null, title: "تحديث", message: "نص", level: NotificationLevel.INFO, entityType: null, entityId: null },
+    });
+    expect(note.id).toBe("note-new");
+  });
+
+  it("fans out to every active holder of the role", async () => {
+    const { service, prisma } = buildService();
+
+    await expect(service.pushToRole("SUPERVISOR", { title: "اعتماد", message: "بانتظارك" })).resolves.toBe(2);
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith({ where: { role: "SUPERVISOR", status: "ACTIVE" }, select: { id: true } });
+    expect(prisma.notification.createMany).toHaveBeenCalledWith({
+      data: [
+        { userId: "user-2", title: "اعتماد", message: "بانتظارك", level: NotificationLevel.INFO, entityType: null, entityId: null },
+        { userId: "user-3", title: "اعتماد", message: "بانتظارك", level: NotificationLevel.INFO, entityType: null, entityId: null },
+      ],
+    });
+  });
+
+  it("broadcasts once when the role has no active user", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findMany.mockResolvedValue([]);
+
+    await expect(service.pushToRole("ARCHIVIST", { title: "تنبيه", message: "نص" })).resolves.toBe(0);
+
+    expect(prisma.notification.createMany).not.toHaveBeenCalled();
+    expect(prisma.notification.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: null }) }));
+  });
+});
+
+describe("NotificationsService reads", () => {
+  it("scopes the list to the actor plus broadcasts and counts unread", async () => {
+    const { service, prisma } = buildService();
+
+    const result = await service.list(PRINCIPAL, { page: 2, pageSize: 10 } as never);
+
+    const where = (prisma.notification.findMany.mock.calls[0][0] as { where: { OR: unknown[] } }).where;
+    expect(where.OR).toEqual([{ userId: "user-1" }, { userId: null }]);
+    expect(result.meta).toEqual({ page: 2, pageSize: 10, total: 2, unread: 2 });
+  });
+
+  it("adds the unread filter when requested", async () => {
+    const { service, prisma } = buildService();
+
+    await service.list(PRINCIPAL, { unreadOnly: true } as never);
+
+    const where = (prisma.notification.findMany.mock.calls[0][0] as { where: { AND: unknown[] } }).where;
+    expect(where.AND).toEqual([{ OR: [{ userId: "user-1" }, { userId: null }] }, { read: false }]);
+  });
+
+  it("counts unread rows for the actor", async () => {
+    const { service } = buildService();
+
+    await expect(service.unreadCount(PRINCIPAL)).resolves.toEqual({ count: 2 });
+  });
+
+  it("marks one notification read and records it", async () => {
     const { service, prisma, audit } = buildService();
 
-    await expect(service.markRead({ sub: "sub-1" } as never, "note-1")).resolves.toEqual({ id: "note-1", read: true });
+    await expect(service.markRead(PRINCIPAL, "note-1")).resolves.toEqual({ id: "note-1", read: true });
 
     expect(prisma.notification.updateMany).toHaveBeenCalledWith({
       where: { id: "note-1", OR: [{ userId: "user-1" }, { userId: null }] },
       data: { read: true },
     });
-    expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "notification.read",
-        entityType: "Notification",
-        entityId: "note-1",
-        actorId: "user-1",
-        departmentId: "dept-1",
-      }),
-    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "notification.read", entityId: "note-1" }));
   });
 
-  it("rejects a notification outside the caller's scope without auditing", async () => {
+  it("reports a notification that is not the actor's", async () => {
     const { service, prisma, audit } = buildService();
     prisma.notification.updateMany.mockResolvedValue({ count: 0 });
 
-    await expect(service.markRead({ sub: "sub-1" } as never, "note-9")).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.markRead(PRINCIPAL, "note-9")).rejects.toBeInstanceOf(NotFoundException);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("records mark-all only when rows changed", async () => {
+    const { service, prisma, audit } = buildService();
+
+    await expect(service.markAllRead(PRINCIPAL)).resolves.toEqual({ updated: 1 });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "notification.read_all", entityId: null, detail: { updated: 1 } }),
+    );
+
+    audit.record.mockClear();
+    prisma.notification.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.markAllRead(PRINCIPAL)).resolves.toEqual({ updated: 0 });
     expect(audit.record).not.toHaveBeenCalled();
   });
 });
 
-describe("NotificationsService.markAllRead", () => {
-  it("records one aggregate audit event for the batch", async () => {
-    const { service, prisma, audit } = buildService();
-    prisma.notification.updateMany.mockResolvedValue({ count: 4 });
+describe("NotificationsService create", () => {
+  it("hides a target from another department behind a 404", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findUnique.mockResolvedValue({ departmentId: "dept-legal" });
 
-    await expect(service.markAllRead({ sub: "sub-1" } as never)).resolves.toEqual({ updated: 4 });
-
-    expect(audit.record).toHaveBeenCalledTimes(1);
-    expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        action: "notification.read_all",
-        entityType: "Notification",
-        entityId: null,
-        actorId: "user-1",
-        detail: { updated: 4 },
-      }),
+    await expect(service.create(PRINCIPAL, { title: "x", message: "y", userId: "user-9" } as never)).rejects.toBeInstanceOf(
+      NotFoundException,
     );
+    expect(prisma.notification.create).not.toHaveBeenCalled();
   });
 
-  it("skips the audit event when nothing was unread", async () => {
+  it("creates and audits a notification for a scoped target", async () => {
     const { service, prisma, audit } = buildService();
-    prisma.notification.updateMany.mockResolvedValue({ count: 0 });
 
-    await expect(service.markAllRead({ sub: "sub-1" } as never)).resolves.toEqual({ updated: 0 });
-    expect(audit.record).not.toHaveBeenCalled();
+    const note = await service.create(PRINCIPAL, {
+      title: "تذكير",
+      message: "نص",
+      userId: "user-2",
+      level: NotificationLevel.WARNING,
+    } as never);
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({
+      data: {
+        userId: "user-2",
+        title: "تذكير",
+        message: "نص",
+        level: NotificationLevel.WARNING,
+        entityType: null,
+        entityId: null,
+      },
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "notification.create", detail: expect.objectContaining({ userId: "user-2" }) }),
+    );
+    expect(note.id).toBe("note-new");
+  });
+
+  it("lets a system administrator target any department without a lookup", async () => {
+    const { service, prisma } = buildService(ADMIN);
+
+    await service.create(PRINCIPAL, { title: "x", message: "y", userId: "user-9" } as never);
+
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(prisma.notification.create).toHaveBeenCalled();
   });
 });

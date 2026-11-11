@@ -111,7 +111,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     );
   }
 
-  return (payload as ApiEnvelope<T>).data;
+  return payload === undefined ? (undefined as T) : (payload as ApiEnvelope<T>).data;
 }
 
 export interface ListDocumentsParams {
