@@ -37,7 +37,7 @@ Always verify changes with:
   (upserts by code/name), leaves documents untouched, and runs `api/prisma/seed.mts` through Node's native
   TypeScript support (Node 22.18+).
 - Verify backend changes with: `cd api && npm run typecheck && npm run lint && npm test && npm audit --audit-level=high && npm run build`.
-  Coverage is enforced by `api/vitest.config.ts` (thresholds 86 statements / 79 branches / 81 functions / 88 lines);
+  Coverage is enforced by `api/vitest.config.ts` (thresholds 88 statements / 82 branches / 82 functions / 89 lines);
   run it with `cd api && npm run test:coverage` (the root `npm run api:test:coverage` builds `@edas/shared` first).
   The SPA gate lives in the root `vitest.config.ts` (36 / 29 / 31 / 37).
 - Repair documents whose stored `departmentId` drifted from their folder with
