@@ -48,6 +48,7 @@ describe("validateEnv", () => {
     expect(() => validateEnv({ ...PRODUCTION, DOWNLOAD_TICKET_SECRET: "too-short" })).toThrow(
       /DOWNLOAD_TICKET_SECRET must be at least 32/,
     );
+    expect(() => validateEnv({ ...PRODUCTION, METRICS_TOKEN: "too-short" })).toThrow(/METRICS_TOKEN must be at least 32/);
   });
 
   it("rejects the docker-compose development credentials", () => {

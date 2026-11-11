@@ -54,6 +54,11 @@ export function validateEnv(config: Record<string, unknown>): Record<string, unk
     }
   }
 
+  const metricsToken = String(config.METRICS_TOKEN ?? "").trim();
+  if (metricsToken && metricsToken.length < MIN_SECRET_LENGTH) {
+    throw new Error(`METRICS_TOKEN must be at least ${MIN_SECRET_LENGTH} characters in production`);
+  }
+
   const reusedDefaults = PRODUCTION_SECRET_KEYS.filter((key) => DEV_SECRET_VALUES.has(String(config[key]).trim().toLowerCase()));
   if (String(config.DATABASE_URL).includes("edas_dev_pw")) reusedDefaults.push("DATABASE_URL");
   if (reusedDefaults.length > 0) {

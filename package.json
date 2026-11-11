@@ -26,6 +26,7 @@
     "api:typecheck": "npm run shared:build && npm --prefix api run typecheck",
     "api:lint": "npm --prefix api run lint",
     "api:test": "npm run shared:build && npm --prefix api test",
+    "api:test:coverage": "npm run shared:build && npm --prefix api run test:coverage",
     "api:build": "npm run shared:build && npm --prefix api run build",
     "demo:seed": "node scripts/seed-demo-documents.mjs",
     "stack:up": "docker compose up -d",

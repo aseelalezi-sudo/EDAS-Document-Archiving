@@ -22,6 +22,7 @@ import { RolesModule } from "./modules/roles/roles.module";
 import { NotificationTemplatesModule } from "./modules/notification-templates/notification-templates.module";
 import { HealthModule } from "./modules/health/health.module";
 import { LegalHoldsModule } from "./modules/legal-holds/legal-holds.module";
+import { MetricsModule } from "./modules/metrics/metrics.module";
 import { NotificationsModule } from "./modules/notifications/notifications.module";
 import { OrgModule } from "./modules/org/org.module";
 import { PreviewModule } from "./modules/preview/preview.module";
@@ -57,6 +58,7 @@ import { UsersModule } from "./modules/users/users.module";
     RolesModule,
     NotificationTemplatesModule,
     HealthModule,
+    MetricsModule,
     UsersModule,
     OrgModule,
     FoldersModule,

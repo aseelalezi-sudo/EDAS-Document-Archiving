@@ -152,6 +152,7 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 | المجال | نقاط النهاية |
 | --- | --- |
 | الصحة | `GET /health`، `GET /health/ready` (بلا بيئة) |
+| المراقبة | `GET /metrics` (Prometheus؛ يحتاج `Authorization: Bearer` عند ضبط `METRICS_TOKEN`) |
 | المصادقة | `GET /auth/config` (عام)، `GET /auth/me` |
 | المؤسسة | `GET /org/tree`، `GET /org/projects`، `GET /org/employees`، `POST/PATCH/DELETE /org/{departments,sections,projects,employees}` |
 | المجموعات | `GET/POST /groups`، `PATCH/DELETE /groups/:id` (كتابة للمشرف؛ الأعضاء يُستبدلون في كل تحديث) |
@@ -197,6 +198,7 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 | `npm run shared:build` | تجميع `packages/shared` إلى `dist/` (يستهلكه الـ API) |
 | `npm run api:install` | تثبيت حزمة `api/` وربط `@edas/shared` |
 | `npm run api:typecheck` / `api:lint` / `api:test` / `api:build` | بوابات الـ API |
+| `npm run api:test:coverage` | اختبارات الـ API مع تغطية وعتبات دنيا |
 | `npm run api:dev` | الـ API في وضع المراقبة |
 | `npm run stack:up` / `stack:down` | تشغيل/إيقاف حاويات الحزمة المحلية |
 | `npm run e2e` | اختبار طرفي للـ API (Docker: Postgres + Keycloak + S3 mock) |
@@ -204,7 +206,7 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 
 </details>
 
-> ✅ **قبل الرفع:** `npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`، وللخادم: `npm run api:typecheck && npm run api:lint && npm run api:test && npm run api:build`. نفس البوابات تعمل في `.github/workflows/ci.yml` مع مهام: SPA، API، API end-to-end، بناء صورة الـ API، واختبار المتصفح.
+> ✅ **قبل الرفع:** `npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`، وللخادم: `npm run api:typecheck && npm run api:lint && npm run api:test:coverage && npm run api:build`. نفس البوابات تعمل في `.github/workflows/ci.yml` مع مهام: SPA، API، API end-to-end، بناء صورة الـ API، واختبار المتصفح.
 
 ### 📊 السجلات والمراقبة
 
@@ -218,7 +220,8 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 - كل طلب يحمل معرّف ارتباط (`x-correlation-id`، يُعاد استخدامه إن أرسله المتصل وإلا يُولَّد)، ويُعاد في ترويسة الاستجابة وفي غلاف `{ error, correlationId }`، ويُلحق بكل سطر سجل داخل الطلب — بما فيه تحذيرات الخدمات وأعطال التحويل ومكدّسات 5xx.
 - سطور الوصول تسجّل الطريقة والمسار والحالة والمدة؛ 5xx عند `error`، و4xx عند `warn`، والطلبات الناجحة عند `log`، وفحوص الصحة عند `debug` حتى لا تُغرق البث.
 - الفحوص: `GET /api/v1/health` (الحياة، يعيد مدة التشغيل) و`GET /api/v1/health/ready` (ينفّذ `SELECT 1` ويعيد 503 عند تعذّر قاعدة البيانات). و`docker-compose.yml` يربط فحص الحاوية بالأول.
-- **ما لا يوجد بعد:** لا نقطة مقاييس (Prometheus/OpenTelemetry)، ولا تتبّع، ولا تكامل APM، ولا تجميع سجلات أو تنبيهات، ولا `pm2`/مدير عنقود — إعادة التشغيل متروكة لمدير الحاويات (`restart: unless-stopped`). السجلات المنظّمة والفحصان هما كل سطح المراقبة، وأي ادعاء يتجاوز ذلك غير دقيق.
+- المقاييس: `GET /api/v1/metrics` بصيغة Prometheus النصية (بعيدًا عن غلاف `{ data }`)، وتشمل عدّاد طلبات ومدرّج مدة ومقياس الطلبات الجارية بمفاتيح `method` و`route` (نمط المسار لا المسار الخام، و`unmatched` لغير المطابق) و`status`، إضافة إلى مقاييس Node الافتراضية ببادئة `edas_`. داخل التطوير النقطة مفتوحة، وفي الإنتاج تُغلق (403) ما لم يُضبط `METRICS_TOKEN` (32 حرفًا فأكثر) ويُرسَل `Authorization: Bearer <token>`. لا تُكشف بيانات المستخدم أو المسارات الخام في التسميات.
+- **ما لا يوجد بعد:** لا تتبّع موزّع ولا OpenTelemetry، ولا تكامل APM، ولا تجميع سجلات أو تنبيهات جاهزة، ولا `pm2`/مدير عنقود — إعادة التشغيل متروكة لمدير الحاويات (`restart: unless-stopped`). السجلات المنظّمة والفحصان ونقطة المقاييس هي سطح المراقبة، وأي ادعاء يتجاوز ذلك غير دقيق.
 
 ### 🔑 الأسرار
 
@@ -240,7 +243,7 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 
 **Keycloak:** استورد realm إنتاجيًا مستقلًا، واضبط عنوانه على HTTPS، وسجّل `<API_PUBLIC_URL>/api/v1/auth/callback` عنوانَ عودة والأصل نفسه Web Origin. لا تستخدم `infra/keycloak/realm-edas.json`: مستخدموه بكلمات مرور تطويرية وعميله `edas-cli` يسمح بـ password grant.
 
-**الترقية:** طبّق الترحيلات قبل تشغيل النسخة الجديدة بـ `cd api && npx prisma migrate deploy` (حاوية compose تفعل ذلك عند كل إقلاع). لا تستخدم `prisma db push` في الإنتاج. راقب `/api/v1/health` و`/api/v1/health/ready`، وأبقِ سياسة إعادة التشغيل (`restart: unless-stopped` أو ما يعادلها) في مدير الحاويات.
+**الترقية:** طبّق الترحيلات قبل تشغيل النسخة الجديدة بـ `cd api && npx prisma migrate deploy` (حاوية compose تفعل ذلك عند كل إقلاع). لا تستخدم `prisma db push` في الإنتاج. راقب `/api/v1/health` و`/api/v1/health/ready`، وأبقِ سياسة إعادة التشغيل (`restart: unless-stopped` أو ما يعادلها) في مدير الحاويات. لجمع المقاييس اضبط `METRICS_TOKEN` (32 حرفًا فأكثر) وأرسل `Authorization: Bearer` من Prometheus؛ بدون التوكن تعيد `/api/v1/metrics` الرمز 403 في الإنتاج.
 
 | السر | الأثر عند تدويره |
 | --- | --- |
@@ -465,6 +468,7 @@ All routes live under `/api/v1` and use a `{ data }` envelope; errors are `{ err
 | Area | Endpoints |
 | --- | --- |
 | Health | `GET /health`, `GET /health/ready` (env-free) |
+| Monitoring | `GET /metrics` (Prometheus; needs `Authorization: Bearer` when `METRICS_TOKEN` is set) |
 | Auth | `GET /auth/config` (public), `GET /auth/me` |
 | Org | `GET /org/tree`, `GET /org/projects`, `GET /org/employees`, `POST/PATCH/DELETE /org/{departments,sections,projects,employees}` |
 | Groups | `GET/POST /groups`, `PATCH/DELETE /groups/:id` (admin writes; members replaced per update) |
@@ -510,6 +514,7 @@ All routes live under `/api/v1` and use a `{ data }` envelope; errors are `{ err
 | `npm run shared:build` | Compile `packages/shared` to `dist/` (used by the API) |
 | `npm run api:install` | Install the `api/` package and link `@edas/shared` |
 | `npm run api:typecheck` / `api:lint` / `api:test` / `api:build` | API gates |
+| `npm run api:test:coverage` | API tests with coverage and enforced thresholds |
 | `npm run api:dev` | API in watch mode |
 | `npm run stack:up` / `stack:down` | Start / stop the local stack containers |
 | `npm run e2e` | End-to-end API suite (Docker: Postgres + Keycloak + S3 mock) |
@@ -517,7 +522,7 @@ All routes live under `/api/v1` and use a `{ data }` envelope; errors are `{ err
 
 </details>
 
-> ✅ **Before pushing:** `npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`, and for the backend: `npm run api:typecheck && npm run api:lint && npm run api:test && npm run api:build`. The same gates run in `.github/workflows/ci.yml` across the SPA, API, API end-to-end, API image and browser smoke jobs.
+> ✅ **Before pushing:** `npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`, and for the backend: `npm run api:typecheck && npm run api:lint && npm run api:test:coverage && npm run api:build`. The same gates run in `.github/workflows/ci.yml` across the SPA, API, API end-to-end, API image and browser smoke jobs.
 
 ### 📊 Observability
 
@@ -531,7 +536,8 @@ The API writes **one JSON object per line** to stdout/stderr (`api/src/common/lo
 - Every request carries a correlation id (`x-correlation-id`, reused when the caller sends one, otherwise generated); it is returned in the response header and in the `{ error, correlationId }` envelope, and attached to every log line emitted inside that request — including service warnings, preview conversion failures and 5xx stacks.
 - Access lines record method, path, status and duration; 5xx log at `error`, 4xx at `warn`, successful requests at `log`, and health probes at `debug`.
 - Probes: `GET /api/v1/health` (liveness, returns uptime) and `GET /api/v1/health/ready` (executes `SELECT 1` and returns 503 when the database is unreachable). `docker-compose.yml` wires the container healthcheck to the former.
-- **What does not exist yet:** no metrics endpoint (Prometheus/OpenTelemetry), no tracing, no APM integration, no log aggregation or alerting, and no `pm2`/cluster manager — restarts are left to the container runtime (`restart: unless-stopped`). Structured logs plus the two probes are the whole observability surface.
+- Metrics: `GET /api/v1/metrics` in the Prometheus text format (bypassing the `{ data }` envelope) with a request counter, a duration histogram and an in-flight gauge keyed by `method`, `route` (the route pattern, never the raw path, and `unmatched` when nothing matched) and `status`, plus the Node default metrics under the `edas_` prefix. The endpoint is open in development and returns 403 in production unless `METRICS_TOKEN` (32+ characters) is set and the scraper sends `Authorization: Bearer <token>`. Labels never carry user data or raw paths.
+- **What does not exist yet:** no distributed tracing or OpenTelemetry, no APM integration, no bundled log aggregation or alerting, and no `pm2`/cluster manager — restarts are left to the container runtime (`restart: unless-stopped`). Structured logs, the two probes and the metrics endpoint are the observability surface.
 
 ### 🔑 Secrets
 
@@ -553,7 +559,7 @@ The `docker compose` file in this repository is for local development. Productio
 
 **Keycloak:** import a separate production realm, put it behind HTTPS, and register `<API_PUBLIC_URL>/api/v1/auth/callback` as the redirect URI and the same origin as a web origin. Do not reuse `infra/keycloak/realm-edas.json`: its users have development passwords and its `edas-cli` client enables the password grant.
 
-**Upgrades:** apply migrations before starting the new release with `cd api && npx prisma migrate deploy` (the compose container does this on every boot). Never use `prisma db push` in production. Watch `/api/v1/health` and `/api/v1/health/ready`, and keep a restart policy (`restart: unless-stopped` or the platform equivalent).
+**Upgrades:** apply migrations before starting the new release with `cd api && npx prisma migrate deploy` (the compose container does this on every boot). Never use `prisma db push` in production. Watch `/api/v1/health` and `/api/v1/health/ready`, and keep a restart policy (`restart: unless-stopped` or the platform equivalent). To scrape metrics, set `METRICS_TOKEN` (32+ characters) and send `Authorization: Bearer` from Prometheus; without the token `/api/v1/metrics` returns 403 in production.
 
 | Secret | Effect of rotation |
 | --- | --- |

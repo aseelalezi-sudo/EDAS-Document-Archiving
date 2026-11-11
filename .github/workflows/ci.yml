@@ -50,7 +50,7 @@ jobs:
       - run: npm --prefix api run prisma:generate
       - run: npm run api:typecheck
       - run: npm run api:lint
-      - run: npm run api:test
+      - run: npm run api:test:coverage
       - run: npm run api:build
 
   e2e:

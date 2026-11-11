@@ -9,7 +9,7 @@ Guidance for AI coding agents working in this repository.
 - Type-check: `npm run typecheck`
 - Lint: `npm run lint`
 - Format check / write: `npm run format:check` / `npm run format`
-- Tests: `npm test` (watch: `npm run test:watch`; coverage: `npm run test:coverage`); API tests: `npm run api:test`
+- Tests: `npm test` (watch: `npm run test:watch`; coverage: `npm run test:coverage`); API tests: `npm run api:test` (coverage gate: `npm run api:test:coverage`)
 - Browser smoke test: `npm run test:browser` (Playwright; needs `npx playwright install chromium` once)
 - Build (type-check + bundle): `npm run build`
 
@@ -37,6 +37,8 @@ Always verify changes with:
   (upserts by code/name), leaves documents untouched, and runs `api/prisma/seed.mts` through Node's native
   TypeScript support (Node 22.18+).
 - Verify backend changes with: `cd api && npm run typecheck && npm run lint && npm test && npm audit --audit-level=high && npm run build`.
+  Coverage is enforced by `api/vitest.config.ts` (thresholds 55 statements / 50 branches / 48 functions / 57 lines);
+  run it with `cd api && npm run test:coverage` (the root `npm run api:test:coverage` builds `@edas/shared` first).
 - Repair documents whose stored `departmentId` drifted from their folder with
   `cd api && npm run build && npm run maintenance:reconcile-departments` (dry run; `-- --apply` writes the
   fix and signs a `document.reconcile_department` audit event per document inside the same transaction).
@@ -89,7 +91,7 @@ Always verify changes with:
   disable with `PREVIEW_PREWARM=off`),
   `approvals` (chains / instances / decisions), `retention` (policies / items), `legal-holds`,
 `notifications`, `notification-templates` (seeded catalog, admin CRUD/reset), `tasks`, `reports` (schedules / runs / summary; runs export CSV, Excel (SpreadsheetML) or an RTL PDF (`pdfkit` + `bidi-shaper`, Amiri font under `api/assets`) to object storage and
-serve `/reports/runs/:id/download`), `report-templates`, `roles` (per-role capability overrides stored in `RolePolicy`; `/roles` GET for admin/manager/auditor, PATCH/DELETE for system admin), `saved-searches`, `settings`, `audit` (hash-chained). Mutating
+serve `/reports/runs/:id/download`), `report-templates`, `roles` (per-role capability overrides stored in `RolePolicy`; `/roles` GET for admin/manager/auditor, PATCH/DELETE for system admin), `saved-searches`, `settings`, `audit` (hash-chained), `metrics` (Prometheus text at `/metrics`; `METRICS_TOKEN` required to expose it in production). Mutating
 endpoints must write an audit event.
 - Root ESLint/tsconfig exclude `api/`; the API has its own `eslint.config.mjs` and `tsconfig.json`.
 - No git history baseline yet; make small, focused changes.
