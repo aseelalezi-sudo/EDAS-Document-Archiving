@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ConfigService } from "@nestjs/config";
+import { SessionCleanupService } from "./session-cleanup.service";
 import { SessionCryptoService } from "./session-crypto.service";
 import { SessionService } from "./session.service";
 
@@ -144,5 +145,32 @@ describe("SessionService revocation", () => {
 
     await expect(service.revokeForSub("sub-1")).resolves.toBe(2);
     expect(prisma.userSession.deleteMany).toHaveBeenCalledWith({ where: { keycloakSub: "sub-1" } });
+  });
+});
+
+describe("SessionService.purgeExpired", () => {
+  it("deletes rows past their refresh window and rows that only had an access token", async () => {
+    const { service, prisma } = buildService();
+    prisma.userSession.deleteMany.mockResolvedValue({ count: 4 });
+    const now = new Date("2026-11-11T00:00:00.000Z");
+
+    await expect(service.purgeExpired(now)).resolves.toBe(4);
+    expect(prisma.userSession.deleteMany).toHaveBeenCalledWith({
+      where: {
+        OR: [{ refreshExpiresAt: { lt: now } }, { refreshExpiresAt: null, accessExpiresAt: { lt: now } }],
+      },
+    });
+  });
+});
+
+describe("SessionCleanupService", () => {
+  it("runs the purge on each tick and survives a failure", async () => {
+    const purgeExpired = vi.fn().mockResolvedValueOnce(2).mockRejectedValueOnce(new Error("db down"));
+    const cleanup = new SessionCleanupService({ purgeExpired } as never);
+
+    await cleanup.tick();
+    await cleanup.tick();
+
+    expect(purgeExpired).toHaveBeenCalledTimes(2);
   });
 });

@@ -35,6 +35,11 @@ secrets/
 # Test coverage
 coverage/
 
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
 # Local-only files (deliberately not published)
 AUDIT.md
 opencode.json

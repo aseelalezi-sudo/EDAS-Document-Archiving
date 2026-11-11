@@ -10,6 +10,7 @@ Guidance for AI coding agents working in this repository.
 - Lint: `npm run lint`
 - Format check / write: `npm run format:check` / `npm run format`
 - Tests: `npm test` (watch: `npm run test:watch`; coverage: `npm run test:coverage`); API tests: `npm run api:test`
+- Browser smoke test: `npm run test:browser` (Playwright; needs `npx playwright install chromium` once)
 - Build (type-check + bundle): `npm run build`
 
 Always verify changes with:
@@ -105,3 +106,7 @@ endpoints must write an audit event.
 - The end-to-end suite is `scripts/e2e.ps1` (`npm run e2e`); it needs Docker, applies Prisma
   migrations to a throwaway Postgres, starts Keycloak from `infra/keycloak`, uses `scripts/s3mock.cjs`
   for S3, and boots the built API on port 4210.
+- The browser smoke test is `e2e/browser/*.spec.ts` (`npm run test:browser`). Playwright builds the
+  SPA with empty `VITE_` variables, serves the bundle on port 4173 and drives Chromium through the
+  offline demo: sign-in, dashboard, documents list, a document page and the preview route, plus the
+  language toggle. The same test runs in CI.

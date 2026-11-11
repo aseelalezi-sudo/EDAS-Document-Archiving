@@ -90,6 +90,15 @@ export class SessionService {
     return result.count;
   }
 
+  async purgeExpired(now = new Date()): Promise<number> {
+    const result = await this.prisma.userSession.deleteMany({
+      where: {
+        OR: [{ refreshExpiresAt: { lt: now } }, { refreshExpiresAt: null, accessExpiresAt: { lt: now } }],
+      },
+    });
+    return result.count;
+  }
+
   private async currentAccessToken(row: UserSession, attempt = 1): Promise<string | null> {
     const accessToken = this.unseal(row.accessToken);
     const expiring = row.accessExpiresAt.getTime() - Date.now() <= REFRESH_SKEW_MS;

@@ -28,6 +28,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "packages", "vite.config.ts"],
+  "include": ["src", "packages", "e2e", "vite.config.ts", "playwright.config.ts"],
   "exclude": ["packages/shared/dist", "dist", "node_modules"]
 }

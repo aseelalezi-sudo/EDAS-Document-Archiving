@@ -45,7 +45,7 @@
 | --- | --- |
 | **الواجهة** | React 19 · TypeScript 5.9 · Vite 7 · Tailwind CSS 4 (RTL، فاتح/داكن) · React Router 7 (HashRouter) |
 | **المكوّنات والرسوم** | Recharts · lucide-react · pdfjs-dist · dxf-viewer |
-| **الاختبارات** | Vitest · Testing Library · jsdom |
+| **الاختبارات** | Vitest · Testing Library · jsdom · Playwright (اختبار دخان بمتصفح) |
 | **الخادم (`api/`)** | NestJS 11 · Prisma 6 · PostgreSQL · Keycloak (OIDC/JWKS) · MinIO (S3) |
 | **البناء** | حزمة إنتاج مقسّمة (vendor + تحميل كسول للمعاينات والمسارات)، وبناء ملف واحد عبر `vite-plugin-singlefile` للعرض دون اتصال |
 
@@ -191,6 +191,7 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 | `npm run test` | تشغيل Vitest مرة واحدة |
 | `npm run test:watch` | Vitest في وضع المراقبة |
 | `npm run test:coverage` | تغطية مع عتبات دنيا |
+| `npm run test:browser` | اختبار دخان بمتصفح Playwright على حزمة الإنتاج في الوضع دون اتصال (يحتاج `npx playwright install chromium` مرة واحدة) |
 | `npm run format` / `format:check` | Prettier كتابةً / فحصًا |
 | `npm run check:secrets` | فحص الأسرار والتتبّع |
 | `npm run shared:build` | تجميع `packages/shared` إلى `dist/` (يستهلكه الـ API) |
@@ -203,7 +204,7 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 
 </details>
 
-> ✅ **قبل الرفع:** `npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`، وللخادم: `npm run api:typecheck && npm run api:lint && npm run api:test && npm run api:build`. نفس البوابات تعمل في `.github/workflows/ci.yml` مع مهام: SPA، API، وAPI end-to-end.
+> ✅ **قبل الرفع:** `npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`، وللخادم: `npm run api:typecheck && npm run api:lint && npm run api:test && npm run api:build`. نفس البوابات تعمل في `.github/workflows/ci.yml` مع مهام: SPA، API، API end-to-end، بناء صورة الـ API، واختبار المتصفح.
 
 ### 📊 السجلات والمراقبة
 
@@ -225,6 +226,65 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 
 يوجد محليًا `.env` و`api/.env` ببيانات تطوير الحزمة (قاعدة `edas_dev_pw`، وMinIO `edas_minio_dev_pw`) وقيم `SESSION_SECRET` مولّدة بطول 48 حرفًا. وهي متجاهلة بواسطة git (`git check-ignore -v .env api/.env`)، و`npm run check:secrets` يُفشل البناء إذا تُتبّع ملف بيئة غير `.env.example`، أو وُجد مفتاح خاص، أو خُتم سرّ في الشيفرة. وCI يشغّله.
 
+### 🚀 النشر
+
+`docker compose` في هذا المستودع للتطوير المحلي فقط. الإنتاج يحتاج:
+
+- صورة الـ API من `api/Dockerfile` (سياق البناء جذر المستودع لأن `@edas/shared` حزمة محلية) وتعمل بمستخدم `node` غير الجذر.
+- PostgreSQL 16 وKeycloak 26 وMinIO (أو أي S3 متوافق) مُدارة خارج الحزمة.
+- خادم ملفات ثابت يقدّم ناتج `npm run build` من `dist/`، وبوابة عكسية تنهي TLS أمام الواجهة والـ API.
+
+**البوابة العكسية والكوكيز:** مرّر `Host` و`X-Forwarded-Proto` كما هما، واضبط `APP_BASE_URL` (أصل الواجهة) و`API_PUBLIC_URL` (أصل الـ API) و`SESSION_COOKIE_SECURE=true`. يجب أن تكون `CORS_ORIGINS` قائمة أصول `https://` صريحة؛ الخادم يرفض `*` و`http://` عند `NODE_ENV=production`.
+
+**ما يرفض الخادم الإقلاع بدونه في الإنتاج:** `DATABASE_URL`، `KEYCLOAK_ISSUER`، `KEYCLOAK_AUDIENCE`، `KEYCLOAK_ADMIN`، `KEYCLOAK_ADMIN_PASSWORD`، `MINIO_ENDPOINT`، `MINIO_BUCKET`، `MINIO_ACCESS_KEY`، `MINIO_SECRET_KEY`، `CORS_ORIGINS`، `SESSION_SECRET`. ويرفض كذلك قيم التطوير (`admin`، `edas_dev_pw`، `edas_minio_dev_pw`) وأي سر أقصر من 32 حرفًا في `SESSION_SECRET` أو `DOWNLOAD_TICKET_SECRET` — التفاصيل في [`env.validation.ts`](api/src/common/config/env.validation.ts).
+
+**Keycloak:** استورد realm إنتاجيًا مستقلًا، واضبط عنوانه على HTTPS، وسجّل `<API_PUBLIC_URL>/api/v1/auth/callback` عنوانَ عودة والأصل نفسه Web Origin. لا تستخدم `infra/keycloak/realm-edas.json`: مستخدموه بكلمات مرور تطويرية وعميله `edas-cli` يسمح بـ password grant.
+
+**الترقية:** طبّق الترحيلات قبل تشغيل النسخة الجديدة بـ `cd api && npx prisma migrate deploy` (حاوية compose تفعل ذلك عند كل إقلاع). لا تستخدم `prisma db push` في الإنتاج. راقب `/api/v1/health` و`/api/v1/health/ready`، وأبقِ سياسة إعادة التشغيل (`restart: unless-stopped` أو ما يعادلها) في مدير الحاويات.
+
+| السر | الأثر عند تدويره |
+| --- | --- |
+| `SESSION_SECRET` | تُبطل كل جلسات المتصفح ويعود المستخدمون لتسجيل الدخول |
+| `DOWNLOAD_TICKET_SECRET` | تُبطل روابط التنزيل الصادرة فورًا |
+| `KEYCLOAK_ADMIN_PASSWORD` · `MINIO_SECRET_KEY` · `DATABASE_URL` | تتطلب تحديث الخدمة والمستخدم معًا في نافذة صيانة قصيرة |
+| عميل Keycloak السري (إن استُخدم) | أعد النشر بالقيمة نفسها على كل نسخ الـ API |
+
+القاعدة: القيمة نفسها على كل النسخ، ثم إعادة تشغيل متدرجة. جدول تدوير `SESSION_SECRET` خارج ساعات العمل لأنه يقطع الجلسات الحالية.
+
+**التوسّع:** طابور المعاينة وتخزين المعاينات داخل نسخة الـ API وغير مشتركين، فشغّل نسخة واحدة حتى تنقل الطابور إلى Redis/BullMQ. تذاكر التنزيل بلا حالة وتعمل عبر النسخ، ومهمة تنظيف الجلسات المنتهية (`SESSION_CLEANUP_INTERVAL_MS`، الافتراضي ساعة) آمنة مع النسخ المتعددة لأنها حذف متكرر لا يعتمد على حالة مشتركة.
+
+### 💾 النسخ الاحتياطي والاستعادة
+
+يجب نسخ مصدرين معًا:
+
+- **PostgreSQL:** الميتاداتا وصلاحيات الوصول والجلسات وسجل التدقيق المتسلسل — لا يمكن إعادة بنائها من الملفات.
+- **MinIO/S3:** الأصول المرفوعة (`documents/…`) والمعاينات المخزّنة (`previews/…`) — صفوف الوثائق بلا كائناتها بلا محتوى.
+
+النسخان لا يتحدثان في اللحظة نفسها: خذ لقطة PostgreSQL أولًا ثم `mc mirror`، أو أوقف حاوية الـ API أثناء النسخ لضمان الاتساق.
+
+```bash
+# 1) قاعدة البيانات (نسخة مخصّصة ومضغوطة)
+docker compose exec -T postgres pg_dump -U edas -Fc edas > edas-$(date +%F).dump
+
+# 2) الكائنات (بعد ضبط alias لعميل mc على نقطة النهاية والأسرار)
+mc alias set edas http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+mc mirror --overwrite edas/edas-documents ./backup/edas-documents
+```
+
+**الاستعادة** إلى قاعدة وحاوية فارغتين أو إلى النسخة الحالية:
+
+```bash
+docker compose stop api
+docker compose exec -T postgres pg_restore -U edas -d edas --clean --if-exists < edas-2026-11-11.dump
+mc mirror --overwrite ./backup/edas-documents edas/edas-documents
+cd api && npx prisma migrate deploy
+docker compose start api
+```
+
+استخدم `pg_restore` من الإصدار الرئيسي نفسه لـ `pg_dump` (16). بعد الاستعادة تحقق من `/api/v1/health/ready`، ثم افتح وثيقة واختبر المعاينة والتنزيل (التنزيل يعيد فحص الوصول إلى الأصل في التخزين)، وابحث في `/api/v1/audit` للتأكد من استمرار سلسلة التدقيق.
+
+**الالتزام التشغيلي:** لا توجد في المستودع مهمة نسخ مجدولة ولا Versioning على الحاوية، فالنسخ مسؤولية تشغيلية. الحد الأدنى المقترح: `pg_dump` يومي مع احتفاظ 30 يومًا، و`mc mirror` يومي إلى تخزين خارج الموقع، ونسخة أسبوعية منفصلة، واختبار استعادة كل ربع سنة. زمن الاسترداد = زمن `pg_restore` + `mc mirror`، وقِسه في اختبار الاستعادة بدل تقديره.
+
 ### 📦 التبعيات و`npm audit`
 
 تعمل `npm audit --audit-level=high` في CI للحزمتين بعد التثبيت، فأي استشارة جديدة عالية أو حرجة تُفشل البناء. الحزمتان مدقّقتان ومحدّثتان، والتثبيتات في `overrides` لأن عدة حزم متأثرة غير مباشرة ولم تُصدر حزمها الأم نسخًا مصحّحة بعد:
@@ -243,6 +303,7 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 api/                 خادم NestJS (package.json خاص، مخطّط Prisma، Dockerfile)
 packages/shared/     العقود المشتركة (الأدوار، مصفوفة الصلاحيات، DTOs) — مصدر وحيد
 infra/keycloak/      استيراد realm الخاص بـ Keycloak
+e2e/browser/         اختبار دخان بمتصفح Playwright (playwright.config.ts في الجذر)
 docs/                مراجعة الشاشات (عربي/إنجليزي) وملاحظات التصميم
 docker-compose.yml   الحزمة المحلية: PostgreSQL + Keycloak + MinIO + API
 src/
@@ -297,7 +358,7 @@ src/
 | --- | --- |
 | **Front end** | React 19 · TypeScript 5.9 · Vite 7 · Tailwind CSS 4 (RTL, light/dark) · React Router 7 (HashRouter) |
 | **UI & rendering** | Recharts · lucide-react · pdfjs-dist · dxf-viewer |
-| **Testing** | Vitest · Testing Library · jsdom |
+| **Testing** | Vitest · Testing Library · jsdom · Playwright (browser smoke test) |
 | **Backend (`api/`)** | NestJS 11 · Prisma 6 · PostgreSQL · Keycloak (OIDC/JWKS) · MinIO (S3) |
 | **Build** | Chunked production bundle (vendor split, lazy PDF/DXF viewers and routes) and an optional single-file build via `vite-plugin-singlefile` for the offline demo |
 
@@ -443,6 +504,7 @@ All routes live under `/api/v1` and use a `{ data }` envelope; errors are `{ err
 | `npm run test` | Run the Vitest suite once |
 | `npm run test:watch` | Vitest in watch mode |
 | `npm run test:coverage` | Coverage with enforced thresholds |
+| `npm run test:browser` | Playwright browser smoke test against the production bundle in offline mode (run `npx playwright install chromium` once) |
 | `npm run format` / `format:check` | Prettier write / check |
 | `npm run check:secrets` | Secrets and tracking scan |
 | `npm run shared:build` | Compile `packages/shared` to `dist/` (used by the API) |
@@ -455,7 +517,7 @@ All routes live under `/api/v1` and use a `{ data }` envelope; errors are `{ err
 
 </details>
 
-> ✅ **Before pushing:** `npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`, and for the backend: `npm run api:typecheck && npm run api:lint && npm run api:test && npm run api:build`. The same gates run in `.github/workflows/ci.yml` across the SPA, API and API end-to-end jobs.
+> ✅ **Before pushing:** `npm run typecheck && npm run lint && npm run format:check && npm run check:secrets && npm test && npm audit --audit-level=high && npm run build`, and for the backend: `npm run api:typecheck && npm run api:lint && npm run api:test && npm run api:build`. The same gates run in `.github/workflows/ci.yml` across the SPA, API, API end-to-end, API image and browser smoke jobs.
 
 ### 📊 Observability
 
@@ -477,6 +539,65 @@ No credential belongs in this repository. The local AI-provider catalogue (`open
 
 `.env` and `api/.env` exist locally with the compose development credentials (database `edas_dev_pw`, MinIO `edas_minio_dev_pw`) and freshly generated 48-character `SESSION_SECRET` values. They are ignored by git (`git check-ignore -v .env api/.env`), and `npm run check:secrets` fails the build when an environment file other than `.env.example` is tracked, when a private key is present, or when a sealing secret is hardcoded in source. CI runs it.
 
+### 🚀 Deployment
+
+The `docker compose` file in this repository is for local development. Production needs:
+
+- The API image from `api/Dockerfile` (build context is the repo root because `@edas/shared` is a local package); it runs as the unprivileged `node` user.
+- PostgreSQL 16, Keycloak 26 and MinIO (or any S3-compatible store) managed outside the compose file.
+- A static host serving the `npm run build` output from `dist/`, plus a reverse proxy that terminates TLS in front of the SPA and the API.
+
+**Reverse proxy and cookies:** forward `Host` and `X-Forwarded-Proto` unchanged, and set `APP_BASE_URL` (SPA origin), `API_PUBLIC_URL` (API origin) and `SESSION_COOKIE_SECURE=true`. `CORS_ORIGINS` must be an explicit list of `https://` origins; the API rejects `*` and `http://` when `NODE_ENV=production`.
+
+**Required in production — the API refuses to boot without them:** `DATABASE_URL`, `KEYCLOAK_ISSUER`, `KEYCLOAK_AUDIENCE`, `KEYCLOAK_ADMIN`, `KEYCLOAK_ADMIN_PASSWORD`, `MINIO_ENDPOINT`, `MINIO_BUCKET`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`, `CORS_ORIGINS`, `SESSION_SECRET`. It also rejects the development credentials (`admin`, `edas_dev_pw`, `edas_minio_dev_pw`) and any `SESSION_SECRET` or `DOWNLOAD_TICKET_SECRET` shorter than 32 characters — see [`env.validation.ts`](api/src/common/config/env.validation.ts).
+
+**Keycloak:** import a separate production realm, put it behind HTTPS, and register `<API_PUBLIC_URL>/api/v1/auth/callback` as the redirect URI and the same origin as a web origin. Do not reuse `infra/keycloak/realm-edas.json`: its users have development passwords and its `edas-cli` client enables the password grant.
+
+**Upgrades:** apply migrations before starting the new release with `cd api && npx prisma migrate deploy` (the compose container does this on every boot). Never use `prisma db push` in production. Watch `/api/v1/health` and `/api/v1/health/ready`, and keep a restart policy (`restart: unless-stopped` or the platform equivalent).
+
+| Secret | Effect of rotation |
+| --- | --- |
+| `SESSION_SECRET` | Every browser session is invalidated and users sign in again |
+| `DOWNLOAD_TICKET_SECRET` | Every issued download link stops working immediately |
+| `KEYCLOAK_ADMIN_PASSWORD` · `MINIO_SECRET_KEY` · `DATABASE_URL` | The service and the underlying account must change together, so plan a short maintenance window |
+| Keycloak client secret (if a confidential client is used) | Redeploy with the same value on every API replica |
+
+Rule of thumb: one value across all replicas, update the source of truth, then restart gradually. Rotate `SESSION_SECRET` outside working hours because it cuts existing sessions.
+
+**Scaling:** the preview queue and preview cache live inside one API process, so run a single replica until the queue moves to Redis/BullMQ. Download tickets are stateless and work across replicas, and the expired-session cleanup (`SESSION_CLEANUP_INTERVAL_MS`, default one hour) is safe on multiple replicas because it only repeats an idempotent delete.
+
+### 💾 Backup and restore
+
+Two sources must be copied together:
+
+- **PostgreSQL:** metadata, access rules, sessions and the hash-chained audit log — none of it can be rebuilt from the files.
+- **MinIO/S3:** uploaded originals (`documents/…`) and cached previews (`previews/…`) — document rows without their objects have no content.
+
+The two are not captured at the same instant: take the PostgreSQL dump first and mirror the bucket afterwards, or stop the API container while copying to guarantee consistency.
+
+```bash
+# 1) database (custom, compressed format)
+docker compose exec -T postgres pg_dump -U edas -Fc edas > edas-$(date +%F).dump
+
+# 2) objects (after pointing an mc alias at the endpoint and credentials)
+mc alias set edas http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+mc mirror --overwrite edas/edas-documents ./backup/edas-documents
+```
+
+**Restore** into an empty or an existing database and bucket:
+
+```bash
+docker compose stop api
+docker compose exec -T postgres pg_restore -U edas -d edas --clean --if-exists < edas-2026-11-11.dump
+mc mirror --overwrite ./backup/edas-documents edas/edas-documents
+cd api && npx prisma migrate deploy
+docker compose start api
+```
+
+Use the `pg_restore` major version that matches the `pg_dump` that produced the archive (16). After restoring, check `/api/v1/health/ready`, open a document and exercise preview plus download (download re-checks access to the stored original), and query `/api/v1/audit` to confirm the audit chain continues.
+
+**Operational commitment:** the repository ships no scheduled backup job and no bucket versioning, so backups are an operational responsibility. Suggested minimum: daily `pg_dump` with 30-day retention, a daily `mc mirror` to off-site storage, a separate weekly copy, and a restore test every quarter. Recovery time equals `pg_restore` + `mc mirror`, so measure it during a restore test instead of guessing.
+
 ### 📦 Dependencies and `npm audit`
 
 `npm audit --audit-level=high` runs in CI for both packages after install, so a new high or critical advisory fails the build. Both trees were audited and updated; the fixes are pinned in `overrides` because several vulnerable packages are transitive and their parents have not released patched versions yet:
@@ -495,6 +616,7 @@ No credential belongs in this repository. The local AI-provider catalogue (`open
 api/                 NestJS backend (own package.json, Prisma schema, Dockerfile)
 packages/shared/     shared contracts (roles, permission matrix, API DTOs) — single source of truth
 infra/keycloak/      Keycloak realm import (edas realm)
+e2e/browser/         Playwright browser smoke test (config at playwright.config.ts)
 docs/                screens audit (Arabic/English) and design notes
 docker-compose.yml   local stack: PostgreSQL + Keycloak + MinIO + API
 src/
