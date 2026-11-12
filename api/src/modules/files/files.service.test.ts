@@ -227,6 +227,33 @@ describe("FilesService presignUpload", () => {
     expect(Object.keys(MIME_EXTENSIONS)).not.toContain("text/html");
     expect(Object.keys(MIME_EXTENSIONS)).not.toContain("image/svg+xml");
   });
+
+  it("falls back to the built-in catalogue when the configured list holds no usable entry", async () => {
+    const context = buildService();
+    context.config.get.mockImplementation((key: string) => (key === "ALLOWED_UPLOAD_MIME" ? " , ," : undefined));
+
+    await expect(
+      context.service.presignUpload({ sub: "user-1" } as never, { fileName: "scan.pdf", mimeType: "application/pdf" } as never),
+    ).resolves.toMatchObject({ storageKey: expect.stringContaining(".pdf") });
+  });
+
+  it("refuses a name that carries nothing but control characters", async () => {
+    const { service, prisma } = buildService();
+
+    await expect(
+      service.presignUpload({ sub: "user-1" } as never, { fileName: "\u0001\u0007", mimeType: "application/pdf" } as never),
+    ).rejects.toThrow(/File name must not be empty/);
+    expect(prisma.uploadIntent.create).not.toHaveBeenCalled();
+  });
+
+  it("refuses an allowed type it cannot map to an extension", async () => {
+    const context = buildService();
+    context.config.get.mockImplementation((key: string) => (key === "ALLOWED_UPLOAD_MIME" ? "application/x-custom" : undefined));
+
+    await expect(
+      context.service.presignUpload({ sub: "user-1" } as never, { fileName: "scan.pdf", mimeType: "application/x-custom" } as never),
+    ).rejects.toThrow(/does not match the declared type/);
+  });
 });
 
 describe("FilesService register", () => {
@@ -501,6 +528,45 @@ describe("FilesService register", () => {
     ).rejects.toThrow(/could not be read for verification/);
     expect(prisma.fileObject.create).not.toHaveBeenCalled();
   });
+
+  it("refuses a registration whose name carries nothing printable", async () => {
+    const { service, prisma } = buildService();
+    prisma.uploadIntent.findUnique.mockResolvedValue(intent());
+
+    await expect(
+      service.register(
+        { sub: "user-1" } as never,
+        {
+          storageKey: "documents/2026/8a7c.pdf",
+          originalName: "\u0001\u0007",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          checksumSha256: CHECKSUM,
+        } as never,
+      ),
+    ).rejects.toThrow(/File name must not be empty/);
+    expect(prisma.uploadIntent.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("accepts an object whose storage layer reports no content type", async () => {
+    const { service, prisma, storage } = buildService();
+    prisma.uploadIntent.findUnique.mockResolvedValue(intent());
+    storage.head.mockResolvedValue({ sizeBytes: 2048, mimeType: null });
+    prisma.fileObject.create.mockResolvedValue(fileObject());
+
+    await expect(
+      service.register(
+        { sub: "user-1" } as never,
+        {
+          storageKey: "documents/2026/8a7c.pdf",
+          originalName: "x.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          checksumSha256: CHECKSUM,
+        } as never,
+      ),
+    ).resolves.toMatchObject({ mimeType: "application/pdf" });
+  });
 });
 
 describe("FilesService downloadUrl", () => {
@@ -559,7 +625,10 @@ describe("FilesService downloadUrl", () => {
     const context = buildService();
     withFile(context, { ...fileObject(), versions: [] });
 
-    const result = await context.service.downloadUrl({ sub: "user-1" } as never, "file-1", { inline: true, baseUrl: "https://edas.example" });
+    const result = await context.service.downloadUrl({ sub: "user-1" } as never, "file-1", {
+      inline: true,
+      baseUrl: "https://edas.example",
+    });
 
     expect(result).toMatchObject({ fileName: "contract.pdf", expiresInSeconds: 120 });
     expect(result.url).toMatch(/^https:\/\/edas\.example\/api\/v1\/files\/file-1\/content\?ticket=[A-Za-z0-9_-]{40,}$/);
@@ -649,6 +718,18 @@ describe("FilesService downloadUrl", () => {
       expect.objectContaining({ detail: expect.objectContaining({ inline: false, requestedInline: true }) }),
     );
   });
+
+  it("treats an unreadable header as unsafe and keeps the download an attachment", async () => {
+    const context = buildService();
+    withFile(context, { ...fileObject(), versions: [] });
+    context.storage.readHead.mockResolvedValue(null);
+
+    await context.service.downloadUrl({ sub: "user-1" } as never, "file-1", { inline: true });
+
+    expect(context.audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ inline: false, requestedInline: true }) }),
+    );
+  });
 });
 
 describe("FilesService openTicketDownload", () => {
@@ -728,6 +809,69 @@ describe("FilesService openTicketDownload", () => {
 
     await expect(context.service.openTicketDownload("file-1", ticketOf(url))).rejects.toThrow(/Missing permission: EXPORT/);
   });
+
+  it("still refuses a bad ticket when the audit chain itself is down", async () => {
+    const context = buildService();
+    context.audit.record.mockRejectedValue(new Error("audit chain locked"));
+
+    await expect(context.service.openTicketDownload("file-1", undefined)).rejects.toThrow(/invalid or has expired/);
+    await expect(context.service.openTicketDownload("file-1", "deadbeef")).rejects.toThrow(/invalid or has expired/);
+  });
+
+  it("serves the file even when the delivery audit cannot be written", async () => {
+    const context = buildService();
+    context.prisma.fileObject.findUnique.mockResolvedValue(linkedFile());
+    const { url } = await context.service.downloadUrl({ sub: "user-1" } as never, "file-1");
+    context.audit.record.mockRejectedValue(new Error("audit chain locked"));
+
+    await expect(context.service.openTicketDownload("file-1", ticketOf(url))).resolves.toMatchObject({
+      key: "documents/2026/8a7c.pdf",
+    });
+  });
+
+  it("keeps the denial when the failure audit cannot be written", async () => {
+    const context = buildService();
+    context.prisma.fileObject.findUnique.mockResolvedValue(linkedFile());
+    const { url } = await context.service.downloadUrl({ sub: "user-1" } as never, "file-1");
+    context.access.permissionsFor.mockResolvedValue(new Set<AclAction>([AclAction.VIEW]));
+    context.audit.record.mockRejectedValue(new Error("audit chain locked"));
+
+    await expect(context.service.openTicketDownload("file-1", ticketOf(url))).rejects.toThrow(/Missing permission: EXPORT/);
+  });
+});
+
+describe("FilesService internal lookups", () => {
+  it("resolves the actor and the linked documents for a readable file", async () => {
+    const { service, prisma, access } = buildService();
+    const stored = {
+      ...fileObject(),
+      versions: [{ document: { id: "doc-1", departmentId: "dept-1", folderId: "folder-1", ownerId: "user-2", deletedAt: null } }],
+    };
+    prisma.fileObject.findUnique.mockResolvedValue(stored);
+
+    const readable = await service.readableFile({ sub: "user-1" } as never, "file-1");
+
+    expect(access.resolveActor).toHaveBeenCalledWith({ sub: "user-1" });
+    expect(readable.actor).toMatchObject({ id: "user-1", departmentId: "dept-1" });
+    expect(readable.file.id).toBe("file-1");
+    expect(readable.documents.map((document) => document.id)).toEqual(["doc-1"]);
+  });
+
+  it("hands a background job the stored row without an ACL check", async () => {
+    const { service, prisma, access } = buildService();
+    prisma.fileObject.findUnique.mockResolvedValue(fileObject());
+
+    await expect(service.fileForJob("file-1")).resolves.toMatchObject({ id: "file-1", storageKey: "documents/2026/8a7c.pdf" });
+    expect(access.resolveActor).not.toHaveBeenCalled();
+    expect(prisma.fileObject.findUnique).toHaveBeenCalledWith({ where: { id: "file-1" } });
+  });
+
+  it("returns null for a job that asks for a file that is gone", async () => {
+    const { service, prisma } = buildService();
+    prisma.fileObject.findUnique.mockResolvedValue(null);
+
+    await expect(service.fileForJob("file-missing")).resolves.toBeNull();
+  });
 });
 
 describe("FilesService checksum verification", () => {
@@ -789,6 +933,27 @@ describe("FilesService checksum verification", () => {
     prisma.fileObject.findUnique.mockResolvedValue(null);
 
     await expect(service.verify({ sub: "user-9" } as never, "missing")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("reports an object it can see but cannot read", async () => {
+    const { service, prisma, storage } = buildService(AUDITOR);
+    prisma.fileObject.findUnique.mockResolvedValue(fileObject());
+    storage.get.mockResolvedValue(null);
+
+    const result = await service.verify({ sub: "user-9" } as never, "file-1");
+
+    expect(result).toMatchObject({ ok: false, reason: "unreadable_object", actualChecksum: null });
+  });
+
+  it("compares against an empty fingerprint when the row never stored one", async () => {
+    const { service, prisma, storage } = buildService(AUDITOR);
+    prisma.fileObject.findUnique.mockResolvedValue(fileObject({ checksumSha256: null }));
+    storage.get.mockResolvedValue(Buffer.from("%PDF-1.7\n"));
+
+    const result = await service.verify({ sub: "user-9" } as never, "file-1");
+
+    expect(result).toMatchObject({ ok: false, reason: "checksum_mismatch", expectedChecksum: "" });
+    expect(result.actualChecksum).toMatch(/^[0-9a-f]{64}$/);
   });
 });
 
@@ -986,6 +1151,16 @@ describe("FilesService purgeUnreferenced", () => {
     await expect(service.purgeUnreferenced({ sub: "user-9" } as never, { fileIds: ["file-attached"], confirm: true })).rejects.toThrow(
       ConflictException,
     );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(storage.remove).not.toHaveBeenCalled();
+  });
+
+  it("refuses an object key the inventory does not list as orphaned", async () => {
+    const { service, prisma, storage } = debris();
+
+    await expect(
+      service.purgeUnreferenced({ sub: "user-9" } as never, { storageKeys: ["documents/2026/keep.pdf"], confirm: true }),
+    ).rejects.toThrow(/storage keys the inventory lists as orphaned/);
     expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(storage.remove).not.toHaveBeenCalled();
   });

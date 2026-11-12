@@ -247,6 +247,26 @@ describe("DocumentsService listing", () => {
     const args = prisma.document.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
     expect(args.where.deletedAt).toEqual({ not: null });
   });
+
+  it("falls back to the actor's department when the scope hands back none", async () => {
+    const { service, access } = buildService();
+    access.listScope.mockResolvedValue({ actor: { id: "user-1", departmentId: "dept-1", role: "DEPT_MANAGER" }, departmentId: null });
+
+    const result = await service.trash(PRINCIPAL, {} as never);
+
+    expect(result.meta.departmentId).toBe("dept-1");
+  });
+
+  it("leaves the department filter open for an unscoped administrator without a query", async () => {
+    const { service, prisma, access } = buildService();
+    access.listScope.mockResolvedValue({ actor: { id: "user-admin", departmentId: null, role: "SYSTEM_ADMIN" }, departmentId: undefined });
+
+    await service.list(PRINCIPAL, {} as never);
+
+    const args = prisma.document.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(args.where.departmentId).toBeUndefined();
+    expect(args.where.AND).toBeUndefined();
+  });
 });
 
 describe("DocumentsService detail and permissions", () => {
@@ -280,6 +300,39 @@ describe("DocumentsService detail and permissions", () => {
       documentId: "doc-1",
       actions: ["VIEW", "DOWNLOAD"],
     });
+  });
+
+  it("refuses to read a document the actor has no view grant on", async () => {
+    const { service, access } = buildService();
+    access.permissionsFor.mockResolvedValue(new Set(["DOWNLOAD"]));
+
+    await expect(service.get(PRINCIPAL, "doc-1")).rejects.toThrow(/Missing permission: VIEW/);
+  });
+
+  it("returns empty labels when the document has no owner, department or folder left", async () => {
+    const { service, prisma } = buildService();
+    prisma.document.findUnique
+      .mockResolvedValueOnce(entity())
+      .mockResolvedValueOnce(listRow({ owner: null, department: null, folder: null }));
+    prisma.documentVersion.findMany.mockResolvedValue([versionRow({ createdBy: null })]);
+
+    const detail = await service.get(PRINCIPAL, "doc-1");
+
+    expect(detail).toMatchObject({
+      ownerName: null,
+      ownerNameEn: null,
+      departmentName: null,
+      departmentNameEn: null,
+      folderName: null,
+    });
+    expect(detail.versions[0].createdByName).toBeNull();
+  });
+
+  it("reports a detail row that disappeared between the lookup and the projection", async () => {
+    const { service, prisma } = buildService();
+    prisma.document.findUnique.mockResolvedValueOnce(entity()).mockResolvedValueOnce(null);
+
+    await expect(service.get(PRINCIPAL, "doc-1")).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 
@@ -363,6 +416,34 @@ describe("DocumentsService creation", () => {
       NotFoundException,
     );
   });
+
+  it("leaves the department empty when an unscoped administrator files without one", async () => {
+    const { service, prisma } = uploader(true);
+
+    await service.create(PRINCIPAL, { title: "بلا إدارة", fileId: "file-1" } as never);
+
+    expect(prisma.document.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ departmentId: null, folderId: undefined }) }),
+    );
+  });
+
+  it("keeps the owner and version author empty for a service account without an id", async () => {
+    const context = uploader(false);
+    context.access.assert.mockResolvedValue({ id: "", departmentId: "dept-1", role: "EMPLOYEE" });
+    context.prisma.fileObject.findUnique.mockResolvedValue({
+      id: "file-1",
+      storageKey: "documents/2026/contract.pdf",
+      uploadedById: "",
+      mimeType: "application/pdf",
+      sizeBytes: 4096n,
+    });
+
+    await context.service.create(PRINCIPAL, { title: "آلي", folderId: "folder-1", fileId: "file-1" } as never);
+
+    const args = context.prisma.document.create.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(args.data.ownerId).toBeNull();
+    expect((args.data.versions as { create: { createdById: string | null } }).create.createdById).toBeNull();
+  });
 });
 
 describe("DocumentsService trash and restore", () => {
@@ -411,6 +492,17 @@ describe("DocumentsService trash and restore", () => {
     prisma.document.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(service.remove(PRINCIPAL, "doc-1")).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it("records no deleter for a service account without an id", async () => {
+    const { service, prisma, access } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "", departmentId: "dept-1", role: "ARCHIVIST" });
+
+    await service.remove(PRINCIPAL, "doc-1");
+
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deletedById: null }) }),
+    );
   });
 
   it("refuses to restore a document that is not in the trash", async () => {
@@ -498,6 +590,31 @@ describe("DocumentsService versions", () => {
     await expect(service.addVersion(PRINCIPAL, "doc-1", { fileId: "file-1" } as never)).rejects.toBeInstanceOf(ConflictException);
   });
 
+  it("lets any other version failure through untouched", async () => {
+    const { service, prisma } = buildService();
+    prisma.documentVersion.create.mockRejectedValue(new Error("connection reset"));
+
+    await expect(service.addVersion(PRINCIPAL, "doc-1", { fileId: "file-1" } as never)).rejects.toThrow(/connection reset/);
+  });
+
+  it("records no author for a service account without an id", async () => {
+    const { service, prisma, access } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "", departmentId: "dept-1", role: "ARCHIVIST" });
+    prisma.fileObject.findUnique.mockResolvedValue({
+      id: "file-1",
+      storageKey: "documents/2026/contract.pdf",
+      uploadedById: "",
+      mimeType: "application/pdf",
+      sizeBytes: 4096n,
+    });
+
+    await service.addVersion(PRINCIPAL, "doc-1", { fileId: "file-1" } as never);
+
+    expect(prisma.documentVersion.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ createdById: null }) }),
+    );
+  });
+
   it("refuses to restore a version on a disposed or trashed document", async () => {
     const disposed = buildService();
     disposed.state.doc = entity({ status: "DISPOSED" });
@@ -573,6 +690,17 @@ describe("DocumentsService checkout locks", () => {
     prisma.document.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(service.checkout(PRINCIPAL, "doc-1")).rejects.toThrow(/another user/);
+  });
+
+  it("holds a service account checkout without an id", async () => {
+    const { service, prisma, access } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "", departmentId: "dept-1", role: "ARCHIVIST" });
+
+    await service.checkout(PRINCIPAL, "doc-1");
+
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ checkedOutById: null }) }),
+    );
   });
 
   it("reports an unavailable checkout without a holder", async () => {
@@ -653,6 +781,17 @@ describe("DocumentsService signatures and records", () => {
 
     await expect(service.sign(PRINCIPAL, "doc-1")).resolves.toMatchObject({ id: "doc-1" });
     expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("signs without a signer id for a service account", async () => {
+    const { service, prisma, access } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "", departmentId: "dept-1", role: "ARCHIVIST" });
+
+    await service.sign(PRINCIPAL, "doc-1");
+
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ signedById: null }) }),
+    );
   });
 
   it("refuses a signature that cannot be applied", async () => {

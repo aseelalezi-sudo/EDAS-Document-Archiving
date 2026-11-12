@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { Logger } from "@nestjs/common";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BadGatewayException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -56,9 +58,9 @@ describe("KeycloakOidcService", () => {
   });
 
   it("adds the client secret only when configured", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ access_token: "at", expires_in: 900, token_type: "Bearer" }), { status: 200 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ access_token: "at", expires_in: 900, token_type: "Bearer" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     await new KeycloakOidcService(config({ KEYCLOAK_CLIENT_SECRET: "s3cret" })).refresh("rt-1");
@@ -75,9 +77,9 @@ describe("KeycloakOidcService", () => {
   });
 
   it("calls the internal issuer server-side while keeping the public authorize url", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ access_token: "at", expires_in: 900, token_type: "Bearer" }), { status: 200 }),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ access_token: "at", expires_in: 900, token_type: "Bearer" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const service = new KeycloakOidcService(config({ KEYCLOAK_INTERNAL_ISSUER: "http://keycloak:8080/realms/edas" }));
 
@@ -99,5 +101,45 @@ describe("KeycloakOidcService", () => {
     expect(url.pathname).toBe("/realms/edas/protocol/openid-connect/logout");
     expect(url.searchParams.get("id_token_hint")).toBe("id-1");
     expect(url.searchParams.get("post_logout_redirect_uri")).toBe("http://app.test/#/login");
+  });
+
+  it("omits the id-token hint when the session never stored one", () => {
+    const url = new URL(new KeycloakOidcService(config()).logoutUrl({ postLogoutRedirectUri: "http://app.test/#/login" }));
+
+    expect(url.searchParams.has("id_token_hint")).toBe(false);
+  });
+
+  it("builds a PKCE pair whose challenge is the S256 hash of the verifier", async () => {
+    const service = new KeycloakOidcService(config());
+
+    const { verifier, challenge } = await service.createPkcePair();
+
+    expect(verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(challenge).toBe(createHash("sha256").update(verifier).digest("base64url"));
+    expect(service.randomString(16)).toMatch(/^[A-Za-z0-9_-]{22}$/);
+  });
+
+  it("forwards the prompt hint when a fresh authentication is required", () => {
+    const url = new URL(
+      new KeycloakOidcService(config()).authorizeUrl({
+        redirectUri: "http://api.test/cb",
+        state: "s",
+        codeChallenge: "c",
+        scopes: "openid",
+        prompt: "login",
+      }),
+    );
+
+    expect(url.searchParams.get("prompt")).toBe("login");
+    expect(url.searchParams.get("scope")).toBe("openid");
+  });
+
+  it("reports an unreachable provider as a bad gateway without leaking the cause", async () => {
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("ECONNREFUSED 10.0.0.1:8080")));
+
+    await expect(new KeycloakOidcService(config()).refresh("rt-1")).rejects.toThrow(/could not be reached/);
+    expect(warn).toHaveBeenCalledWith("token request failed: ECONNREFUSED 10.0.0.1:8080");
+    warn.mockRestore();
   });
 });

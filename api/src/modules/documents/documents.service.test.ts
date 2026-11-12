@@ -92,6 +92,54 @@ describe("DocumentsService update", () => {
     );
     expect(detailSpy).toHaveBeenCalledWith("doc-1");
   });
+
+  function editable() {
+    const context = buildService();
+    allowAdmin(context);
+    context.access.permissionsFor.mockResolvedValue(new Set(["EDIT"]));
+    context.prisma.document.findUnique.mockResolvedValueOnce({ ...document, deletedAt: null, status: "APPROVED" });
+    return context;
+  }
+
+  it("persists a retention end date as a real date", async () => {
+    const { service, prisma } = editable();
+    prisma.document.updateMany.mockResolvedValue({ count: 1 });
+    vi.spyOn(service as unknown as { detail: (id: string) => Promise<unknown> }, "detail").mockResolvedValue({ id: "doc-1" });
+
+    await service.update({ sub: "user-1" } as never, "doc-1", { retentionEnd: "2026-12-31T00:00:00.000Z" });
+
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ retentionEnd: new Date("2026-12-31T00:00:00.000Z") }) }),
+    );
+  });
+
+  it("reports a document that disappeared between the read and the write", async () => {
+    const { service, prisma } = editable();
+    prisma.document.updateMany.mockResolvedValue({ count: 0 });
+    prisma.document.findUnique.mockResolvedValueOnce(null);
+
+    await expect(service.update({ sub: "user-1" } as never, "doc-1", { title: "عنوان" })).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("re-applies the lifecycle rule to the fresh row and surfaces its real refusal", async () => {
+    const { service, prisma } = editable();
+    prisma.document.updateMany.mockResolvedValue({ count: 0 });
+    prisma.document.findUnique.mockResolvedValueOnce({ ...document, deletedAt: null, status: "DISPOSED" });
+
+    await expect(service.update({ sub: "user-1" } as never, "doc-1", { transition: "ARCHIVE" })).rejects.toThrow(
+      /Disposed documents cannot change status/,
+    );
+  });
+
+  it("reports a lost update race as a conflict once the transition still applies", async () => {
+    const { service, prisma } = editable();
+    prisma.document.updateMany.mockResolvedValue({ count: 0 });
+    prisma.document.findUnique.mockResolvedValueOnce({ ...document, deletedAt: null, status: "APPROVED", isRecord: false });
+
+    await expect(service.update({ sub: "user-1" } as never, "doc-1", { transition: "ARCHIVE" })).rejects.toThrow(
+      /changed while it was being updated/,
+    );
+  });
 });
 
 describe("DocumentsService folder moves", () => {
@@ -346,6 +394,65 @@ describe("DocumentsService purge", () => {
 
     await expect(service.purge({ sub: "user-2" } as never, "doc-1")).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses to purge a document that is still live", async () => {
+    const context = buildService();
+    const { service, prisma } = context;
+    allowAdmin(context);
+    prisma.document.findUnique.mockResolvedValue({ ...document, deletedAt: null });
+
+    await expect(service.purge({ sub: "user-1" } as never, "doc-1")).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("reports a document that vanished before the purge locked it", async () => {
+    const context = buildService();
+    const { service, prisma } = context;
+    allowAdmin(context);
+    prisma.document.findUnique.mockResolvedValueOnce(document).mockResolvedValueOnce(null);
+
+    await expect(service.purge({ sub: "user-1" } as never, "doc-1")).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.document.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("stops when the document was restored while the purge waited for the lock", async () => {
+    const context = buildService();
+    const { service, prisma } = context;
+    allowAdmin(context);
+    prisma.document.findUnique.mockResolvedValueOnce(document).mockResolvedValueOnce({ deletedAt: null, status: "DRAFT" });
+
+    await expect(service.purge({ sub: "user-1" } as never, "doc-1")).rejects.toThrow(/Only trashed documents can be purged/);
+    expect(prisma.document.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("reports a lost delete race inside the purge transaction", async () => {
+    const context = buildService();
+    const { service, prisma, audit } = context;
+    allowAdmin(context);
+    prisma.document.deleteMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.purge({ sub: "user-1" } as never, "doc-1")).rejects.toThrow(/changed while it was being purged/);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("keeps the purge and reports the objects it could not delete", async () => {
+    const context = buildService();
+    const { service, prisma, storage, audit } = context;
+    allowAdmin(context);
+    prisma.documentVersion.findMany.mockResolvedValueOnce([{ fileId: "file-own" }]);
+    prisma.fileObject.findMany.mockResolvedValue([{ id: "file-own", storageKey: "documents/2026/own.pdf" }]);
+    storage.remove.mockRejectedValue(new Error("S3 is unreachable"));
+
+    await expect(service.purge({ sub: "user-1" } as never, "doc-1")).resolves.toEqual({ id: "doc-1", deleted: true, purged: true });
+
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "document.purge.storage",
+        result: "failure",
+        detail: { docNo: "DOC-2026-0001", storageErrors: 1, storageKeys: ["documents/2026/own.pdf"] },
+      }),
+    );
   });
 });
 
