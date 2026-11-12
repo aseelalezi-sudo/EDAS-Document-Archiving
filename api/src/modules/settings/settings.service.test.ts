@@ -22,7 +22,7 @@ function buildService() {
   };
   const access = { resolveActor: vi.fn().mockResolvedValue(ADMIN) };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
-  return { service: new SettingsService(prisma as never, access as never, audit as never), prisma, audit };
+  return { service: new SettingsService(prisma as never, access as never, audit as never), prisma, access, audit };
 }
 
 describe("SettingsService", () => {
@@ -62,5 +62,14 @@ describe("SettingsService", () => {
         detail: { key: "retention.defaultYears", value: 7 },
       }),
     );
+  });
+
+  it("leaves the audit actor empty for an account without an id", async () => {
+    const { service, access, audit } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "", departmentId: null });
+
+    await service.put(PRINCIPAL, "retention.defaultYears", { value: 3 } as never);
+
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "setting.update", actorId: null }));
   });
 });

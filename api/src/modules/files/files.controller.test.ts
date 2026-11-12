@@ -166,4 +166,55 @@ describe("FilesController content streaming", () => {
     expect(response.status).toHaveBeenCalledWith(502);
     body.destroy();
   });
+
+  it("closes the response without a new status when the body breaks after the headers went out", async () => {
+    const { controller, storage } = build();
+    const body = new Readable({ read() {} });
+    storage.getObjectStream.mockResolvedValue({ body, contentLength: 3, contentRange: null, contentType: "application/pdf" });
+    const response = fakeResponse();
+    response.headersSent = true;
+    const end = vi.spyOn(response, "end");
+
+    await controller.content("file-1", "ticket-1", undefined, response as unknown as Response);
+    body.emit("error", new Error("ECONNRESET"));
+
+    expect(response.status).not.toHaveBeenCalledWith(502);
+    expect(end).toHaveBeenCalled();
+    body.destroy();
+  });
+
+  it("answers 416 when storage itself refuses the byte range", async () => {
+    const { controller, storage } = build();
+    storage.getObjectStream.mockRejectedValue(Object.assign(new Error("range"), { $metadata: { httpStatusCode: 416 } }));
+    const response = fakeResponse();
+
+    await controller.content("file-1", "ticket-1", "bytes=1-3", response as unknown as Response);
+
+    expect(response.status).toHaveBeenCalledWith(416);
+    expect(response.setHeader).toHaveBeenCalledWith("Content-Range", "bytes */5");
+  });
+
+  it("marks a download-only ticket as an attachment", async () => {
+    const { controller, files, storage } = build();
+    files.openTicketDownload.mockResolvedValue({
+      key: "documents/2026/a.pdf",
+      contentType: "application/pdf",
+      fileName: "a.pdf",
+      sizeBytes: 5,
+      inline: false,
+    });
+    storage.getObjectStream.mockResolvedValue({
+      body: Readable.from([Buffer.from("hello")]),
+      contentLength: 5,
+      contentRange: null,
+      contentType: "application/pdf",
+    });
+    const response = fakeResponse();
+    const finished = new Promise<void>((resolve) => response.on("finish", () => resolve()));
+
+    await controller.content("file-1", "ticket-1", undefined, response as unknown as Response);
+    await finished;
+
+    expect(response.setHeader).toHaveBeenCalledWith("Content-Disposition", "attachment; filename*=UTF-8''a.pdf");
+  });
 });

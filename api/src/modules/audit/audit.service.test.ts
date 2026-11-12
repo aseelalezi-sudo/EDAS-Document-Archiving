@@ -435,4 +435,22 @@ describe("AuditService.verifyChain", () => {
 
     expect(report.baseline?.forkCount).toBe(0);
   });
+
+  it("treats a row without a stored hash version as a legacy event", async () => {
+    const legacy = { ...event(1, null), hashVersion: undefined };
+    const { service } = buildService([legacy]);
+
+    const report = await service.verifyChain();
+
+    expect(report).toMatchObject({ valid: true, detailSignedEvents: 0, detailSignedFromSeq: null });
+  });
+
+  it("verifies a signed event whose detail keys arrived out of order", async () => {
+    const signed = event(1, null, { hashVersion: 2, detail: { alpha: 1, zeta: 3, middle: 2 } });
+    const { service } = buildService([signed]);
+
+    const report = await service.verifyChain();
+
+    expect(report).toMatchObject({ valid: true, detailSignedEvents: 1 });
+  });
 });

@@ -56,6 +56,31 @@ describe("StorageService presign endpoints", () => {
     expect(download).toContain("response-content-disposition=attachment");
     expect(preview).toContain("response-content-disposition=inline");
   });
+
+  it("switches both endpoints to https when TLS is enabled", async () => {
+    const internal = new StorageService(
+      makeConfig({
+        MINIO_ENDPOINT: "minio",
+        MINIO_PORT: "9000",
+        MINIO_ACCESS_KEY: "ak",
+        MINIO_SECRET_KEY: "sk",
+        MINIO_USE_SSL: "true",
+      }),
+    );
+    await expect(internal.presignDownload("documents/2026/d.txt")).resolves.toContain("https://minio:9000/edas-documents/");
+
+    const both = new StorageService(
+      makeConfig({
+        MINIO_ENDPOINT: "minio",
+        MINIO_PORT: "9000",
+        MINIO_ACCESS_KEY: "ak",
+        MINIO_SECRET_KEY: "sk",
+        MINIO_USE_SSL: "true",
+        MINIO_PUBLIC_ENDPOINT: "files.example",
+      }),
+    );
+    await expect(both.presignDownload("documents/2026/d.txt")).resolves.toContain("https://files.example:9000/edas-documents/");
+  });
 });
 
 describe("StorageService object reads", () => {
@@ -136,6 +161,33 @@ describe("StorageService object reads", () => {
     });
 
     await expect(service.listKeys("")).resolves.toEqual({ keys: [], truncated: false, error: "Access Denied" });
+  });
+
+  it("buffers an empty body, string chunks and byte-array chunks", async () => {
+    const empty = withClient(async () => ({}));
+    await expect(empty.get("documents/2026/empty.pdf", 1024)).resolves.toBeNull();
+
+    const strings = withClient(async () => ({ Body: Readable.from(["contract", "-bytes"]) }));
+    await expect(strings.get("documents/2026/a.pdf", 1024)).resolves.toEqual(Buffer.from("contract-bytes"));
+
+    const bytes = withClient(async () => ({ Body: Readable.from([new Uint8Array([97, 98, 99])]) }));
+    await expect(bytes.sha256("documents/2026/a.pdf", 1024)).resolves.toMatchObject({ sizeBytes: 3 });
+  });
+
+  it("skips a listing page without contents or without object keys", async () => {
+    const blank = withClient(async () => ({ IsTruncated: false }));
+    await expect(blank.listKeys("documents/")).resolves.toEqual({ keys: [], truncated: false });
+
+    const keyless = withClient(async () => ({ Contents: [{ Size: 12 }, { Key: "documents/2026/1.pdf" }] }));
+    await expect(keyless.listKeys("documents/")).resolves.toEqual({ keys: ["documents/2026/1.pdf"], truncated: false });
+  });
+
+  it("stringifies a listing failure that is not an Error", async () => {
+    const service = withClient(async () => {
+      throw "bucket offline";
+    });
+
+    await expect(service.listKeys("")).resolves.toEqual({ keys: [], truncated: false, error: "bucket offline" });
   });
 });
 
@@ -293,6 +345,12 @@ describe("StorageService ranged head reads", () => {
     const service = withBody(async () => ({ Body: Readable.from([Buffer.from("short")]) }));
 
     await expect(service.readHead("documents/2026/a.pdf")).resolves.toEqual(Buffer.from("short"));
+  });
+
+  it("accepts a byte array chunk", async () => {
+    const service = withBody(async () => ({ Body: Readable.from([new Uint8Array([97, 98, 99])]) }));
+
+    await expect(service.readHead("documents/2026/a.pdf", 3)).resolves.toEqual(Buffer.from("abc"));
   });
 
   it("floors a fractional or zero limit to one byte", async () => {

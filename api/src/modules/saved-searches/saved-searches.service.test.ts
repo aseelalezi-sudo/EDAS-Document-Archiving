@@ -40,9 +40,7 @@ describe("SavedSearchesService", () => {
     const result = await service.list(PRINCIPAL);
 
     expect(result.items.map((item) => item.id)).toEqual(["saved-1"]);
-    expect(prisma.savedSearch.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: "user-1" } }),
-    );
+    expect(prisma.savedSearch.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "user-1" } }));
   });
 
   it("never matches another account when the actor is unprovisioned", async () => {
@@ -102,8 +100,17 @@ describe("SavedSearchesService", () => {
     await expect(service.remove(PRINCIPAL, "saved-1")).resolves.toEqual({ id: "saved-1", deleted: true });
 
     expect(prisma.savedSearch.delete).toHaveBeenCalledWith({ where: { id: "saved-1" } });
-    expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "saved-search.delete", detail: { name: "عقود" } }),
-    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "saved-search.delete", detail: { name: "عقود" } }));
+  });
+
+  it("leaves the audit actor empty for an account without an id", async () => {
+    const { service, prisma, audit } = buildService({ id: "", departmentId: null });
+    prisma.savedSearch.findUnique.mockResolvedValue({ id: "saved-1", userId: "", name: "عقود", query: {} } as never);
+
+    await service.update(PRINCIPAL, "saved-1", { name: "عقود 2026" } as never);
+    await service.remove(PRINCIPAL, "saved-1");
+
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "saved-search.update", actorId: null }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "saved-search.delete", actorId: null }));
   });
 });

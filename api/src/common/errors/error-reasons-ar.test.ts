@@ -90,7 +90,9 @@ describe("server error reasons catalogue", () => {
     );
     expect(arabicReason("Some message nobody catalogued", 409)).toBe("تعارض مع الحالة الحالية للسجل");
     expect(arabicReason("Some message nobody catalogued", 429)).toBe("عدد كبير من الطلبات، حاول بعد قليل");
+    expect(arabicReason("Identity provider rejected the login attempt", 502)).toBe("رفض مزوّد الهوية الطلب: login attempt");
     expect(arabicReason(undefined, 403)).toBe("صلاحيات غير كافية");
+    expect(arabicReason("   ", 418)).toBe("تعذّر إتمام العملية");
     for (const message of ["Document not found", "Insufficient permissions", "Validation failed", "User not found"]) {
       const reason = arabicReason(message, 400);
       expect(reason).not.toBe(message);

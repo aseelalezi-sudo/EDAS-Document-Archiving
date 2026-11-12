@@ -93,6 +93,19 @@ describe("ReportsScheduler", () => {
     expect(reports.runDueSchedules).not.toHaveBeenCalled();
   });
 
+  it("names a sweep that rejected with a value that is not an error", async () => {
+    vi.useFakeTimers();
+    const reports = { runDueSchedules: vi.fn().mockRejectedValueOnce("connection reset").mockResolvedValue(0) };
+    const scheduler = new ReportsScheduler(reports as unknown as ReportsService);
+    const error = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+
+    scheduler.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(error).toHaveBeenCalledWith("Scheduled report run failed: connection reset");
+    scheduler.onApplicationShutdown();
+  });
+
   it("tolerates shutdown before bootstrap", () => {
     const { scheduler } = build();
 

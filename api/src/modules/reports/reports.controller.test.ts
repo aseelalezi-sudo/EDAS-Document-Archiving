@@ -168,6 +168,22 @@ describe("ReportsController content streaming", () => {
     expect(response.status).toHaveBeenCalledWith(416);
   });
 
+  it("closes the response without a new status when the body breaks after the headers went out", async () => {
+    const { controller, storage } = build();
+    const body = new Readable({ read() {} });
+    storage.getObjectStream.mockResolvedValue({ body, contentLength: 3, contentRange: null, contentType: "text/csv" });
+    const response = fakeResponse();
+    response.headersSent = true;
+    const end = vi.spyOn(response, "end");
+
+    await controller.content("run-1", "ticket-1", undefined, response as unknown as Response);
+    body.emit("error", new Error("socket hang up"));
+
+    expect(response.status).not.toHaveBeenCalledWith(502);
+    expect(end).toHaveBeenCalled();
+    body.destroy();
+  });
+
   it("aborts the response when the stream errors and tears the body down on close", async () => {
     const { controller, storage } = build();
     const body = new Readable({ read() {} });

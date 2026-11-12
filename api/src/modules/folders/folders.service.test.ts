@@ -155,6 +155,16 @@ describe("FoldersService.create", () => {
     );
   });
 
+  it("creates a folder without a department for a scoped account that has none", async () => {
+    const { service, prisma } = buildService({ id: "user-1", departmentId: null, role: "EMPLOYEE" }, false);
+
+    await service.create(PRINCIPAL, { name: "مجلد", scope: "DEPARTMENT" } as never);
+
+    expect(prisma.folder.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ departmentId: undefined }) }),
+    );
+  });
+
   it("rejects a parent that does not exist", async () => {
     const { service, prisma } = buildService(employee, false);
     prisma.folder.findUnique.mockResolvedValue(null);

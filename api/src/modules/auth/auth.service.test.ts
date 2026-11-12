@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { BadRequestException } from "@nestjs/common";
+import { BadRequestException, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import { UserRole, UserStatus } from "@prisma/client";
 import type { Principal } from "../../common/auth/principal";
@@ -310,6 +310,32 @@ describe("AuthService.profile", () => {
     });
     expect(prisma.user.create).not.toHaveBeenCalled();
     expect(profile).toMatchObject({ id: "user-1", isNew: false });
+  });
+
+  it("keeps an account whose subject already matches without warning", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(userRecord({ keycloakSub: "sub-1" }));
+    const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+
+    const profile = await service.profile(principal);
+
+    expect(prisma.user.update).not.toHaveBeenCalled();
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalled();
+    expect(profile).toMatchObject({ id: "user-1", isNew: false });
+    warn.mockRestore();
+  });
+
+  it("provisions an account without an identity role as an employee", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    prisma.user.create.mockResolvedValue(userRecord({ role: UserRole.EMPLOYEE }));
+
+    await service.profile({ ...principal, identityRoles: [] });
+
+    expect(prisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ role: UserRole.EMPLOYEE }) }),
+    );
   });
 });
 

@@ -48,7 +48,7 @@ function buildService() {
 
   const access = { resolveActor: vi.fn().mockResolvedValue(ADMIN) };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
-  return { service: new GroupsService(prisma as never, access as never, audit as never), prisma, audit, state };
+  return { service: new GroupsService(prisma as never, access as never, audit as never), prisma, audit, access, state };
 }
 
 describe("GroupsService", () => {
@@ -100,9 +100,7 @@ describe("GroupsService", () => {
       clientVersion: "6.1.0",
     });
 
-    await expect(service.create(PRINCIPAL, { name: "x", memberIds: ["ghost"] } as never)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(service.create(PRINCIPAL, { name: "x", memberIds: ["ghost"] } as never)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("rethrows unexpected write failures unchanged", async () => {
@@ -161,8 +159,15 @@ describe("GroupsService", () => {
     await expect(service.remove(PRINCIPAL, "group-1")).resolves.toEqual({ id: "group-1", deleted: true });
 
     expect(prisma.group.delete).toHaveBeenCalledWith({ where: { id: "group-1" } });
-    expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "group.delete", detail: { name: "لجنة العقود" } }),
-    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "group.delete", detail: { name: "لجنة العقود" } }));
+  });
+
+  it("leaves the audit actor empty for an account without an id", async () => {
+    const { service, access, audit } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "", departmentId: null });
+
+    await service.remove(PRINCIPAL, "group-1");
+
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "group.delete", actorId: null }));
   });
 });

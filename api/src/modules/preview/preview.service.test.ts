@@ -828,6 +828,105 @@ describe("PreviewService prewarming", () => {
   });
 });
 
+describe("PreviewService conversion edges", () => {
+  it("retries a file that has no job entry", async () => {
+    const { service, audit } = build({ head: HEADS.pdf, file: { originalName: "a.pdf", mimeType: "application/pdf" } });
+
+    await expect(service.retry(PRINCIPAL as never, "file-1")).resolves.toMatchObject({ status: "ready", source: "original" });
+    expect(audit.record).not.toHaveBeenCalledWith(expect.objectContaining({ action: "preview.retry" }));
+  });
+
+  it("falls back to a placeholder name when the original has no stem", async () => {
+    const { service, storage } = build({ head: HEADS.dwg, file: { originalName: ".dwg", mimeType: "image/vnd.dwg" } });
+    storage.head.mockResolvedValue({ sizeBytes: 64 });
+
+    await expect(service.resolveContent(PRINCIPAL as never, "file-1", "preview")).resolves.toMatchObject({
+      fileName: "preview.dxf",
+      contentType: "application/dxf",
+    });
+  });
+
+  it("fails a DWG conversion that produced an empty file", async () => {
+    const { service, converter, audit, storage } = build({
+      head: HEADS.dwg,
+      file: { originalName: "plan.dwg", mimeType: "image/vnd.dwg" },
+    });
+    converter.convertDwgToDxf.mockImplementation(async (_source: string, workDir: string) => {
+      const outputPath = join(workDir, "output.dxf");
+      await writeFile(outputPath, Buffer.alloc(0));
+      return { outputPath, elapsedMs: 1 };
+    });
+
+    await service.getPreview(PRINCIPAL as never, "file-1");
+    await vi.waitFor(() =>
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: "preview.convert.done",
+          detail: expect.objectContaining({ source: "dwg", reason: "conversion_produced_no_output" }),
+        }),
+      ),
+    );
+    expect(storage.put).not.toHaveBeenCalled();
+  });
+
+  it("fails a conversion that rejected with a non-Error value", async () => {
+    const { service, converter, audit } = build({ head: HEADS.docx });
+    converter.convertOfficeToPdf.mockRejectedValue("upstream refused");
+
+    await service.getPreview(PRINCIPAL as never, "file-1");
+    await vi.waitFor(() =>
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "preview.convert.done", detail: expect.objectContaining({ reason: "conversion_failed" }) }),
+      ),
+    );
+    await expect(service.getPreview(PRINCIPAL as never, "file-1")).resolves.toMatchObject({
+      status: "failed",
+      reason: "conversion_failed",
+    });
+  });
+
+  it("serves a failed DWG job as a CAD preview", async () => {
+    const { service, converter, audit } = build({
+      head: HEADS.dwg,
+      file: { originalName: "plan.dwg", mimeType: "image/vnd.dwg" },
+    });
+    converter.convertDwgToDxf.mockRejectedValue(new ConversionTimeoutError(1500));
+
+    await service.getPreview(PRINCIPAL as never, "file-1");
+    await vi.waitFor(() =>
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: "preview.convert.done", result: "failure", detail: expect.objectContaining({ source: "dwg" }) }),
+      ),
+    );
+
+    await expect(service.getPreview(PRINCIPAL as never, "file-1")).resolves.toMatchObject({
+      kind: "cad",
+      status: "failed",
+      source: "dwg",
+      reason: "conversion_timeout",
+    });
+  });
+
+  it("prunes a finished job once it is older than the retention window", async () => {
+    const { service, converter, audit, storage } = build({ head: HEADS.docx });
+    converter.convertOfficeToPdf.mockImplementation(producedPdf());
+
+    await service.getPreview(PRINCIPAL as never, "file-1");
+    await vi.waitFor(() =>
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "preview.convert.done", result: "success" })),
+    );
+    const internal = service as unknown as { jobs: Map<string, unknown> };
+    expect(internal.jobs.size).toBe(1);
+
+    storage.head.mockResolvedValue({ sizeBytes: 18 });
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 16 * 60 * 1000);
+
+    await service.getPreview(PRINCIPAL as never, "file-1");
+
+    expect(internal.jobs.size).toBe(0);
+  });
+});
+
 describe("PreviewService disk hygiene", () => {
   it("cleans the conversion work directory after a run", async () => {
     const { service, converter, audit } = build({ head: HEADS.docx });

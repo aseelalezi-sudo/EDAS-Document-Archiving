@@ -130,6 +130,29 @@ describe("NotificationsService reads", () => {
     await expect(service.markAllRead(PRINCIPAL)).resolves.toEqual({ updated: 0 });
     expect(audit.record).not.toHaveBeenCalled();
   });
+
+  it("scopes every read to broadcasts when the actor has no identifier", async () => {
+    const { service, prisma, audit } = buildService({ ...EMPLOYEE, id: "" });
+
+    await service.list(PRINCIPAL, { unreadOnly: true } as never);
+    const where = (prisma.notification.findMany.mock.calls[0][0] as { where: { AND: { OR: unknown[] }[] } }).where;
+    expect(where.AND[0].OR).toEqual([{ userId: "__none__" }, { userId: null }]);
+
+    await service.unreadCount(PRINCIPAL);
+    expect(prisma.notification.count).toHaveBeenLastCalledWith({
+      where: { read: false, OR: [{ userId: "__none__" }, { userId: null }] },
+    });
+
+    await service.markRead(PRINCIPAL, "note-1");
+    expect(prisma.notification.updateMany).toHaveBeenCalledWith({
+      where: { id: "note-1", OR: [{ userId: "__none__" }, { userId: null }] },
+      data: { read: true },
+    });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "notification.read", actorId: null }));
+
+    await service.markAllRead(PRINCIPAL);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "notification.read_all", actorId: null }));
+  });
 });
 
 describe("NotificationsService create", () => {
@@ -176,5 +199,16 @@ describe("NotificationsService create", () => {
 
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
     expect(prisma.notification.create).toHaveBeenCalled();
+  });
+
+  it("broadcasts and audits a notification created by an actor without an identifier", async () => {
+    const { service, prisma, audit } = buildService({ ...EMPLOYEE, id: "" });
+
+    await service.create(PRINCIPAL, { title: "تعميم", message: "نص" } as never);
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({ data: expect.objectContaining({ userId: null }) });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "notification.create", actorId: null, detail: expect.objectContaining({ userId: null }) }),
+    );
   });
 });

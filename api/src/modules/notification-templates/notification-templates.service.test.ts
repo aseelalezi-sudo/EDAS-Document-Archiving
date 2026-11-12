@@ -91,5 +91,51 @@ describe("NotificationTemplatesService", () => {
 
     await expect(service.reset({ sub: "actor-1" } as never, "missing")).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.update({ sub: "actor-1" } as never, "missing", { name: "x" })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.remove({ sub: "actor-1" } as never, "missing")).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.notificationTemplate.delete).not.toHaveBeenCalled();
+  });
+
+  it("keeps a populated catalog untouched on start-up", async () => {
+    const { service, prisma } = buildService();
+    prisma.notificationTemplate.count.mockResolvedValue(6);
+
+    await service.onModuleInit();
+
+    expect(prisma.notificationTemplate.createMany).not.toHaveBeenCalled();
+  });
+
+  it("reports the known e-mail channel and normalises anything else to in-app", async () => {
+    const { service, prisma } = buildService();
+    prisma.notificationTemplate.findMany.mockResolvedValue([
+      { ...row, id: "nt-5", channel: "EMAIL" },
+      { ...row, id: "nt-7", channel: "PUSH" },
+    ]);
+
+    const result = await service.list();
+
+    expect(result.items.map((item) => item.channel)).toEqual(["EMAIL", "IN_APP"]);
+    expect(result.items[0]).toMatchObject({ isDefault: true });
+    expect(result.items[1]).toMatchObject({ isDefault: false });
+  });
+
+  it("audits the four writes of an actor without an account id", async () => {
+    const { prisma, audit } = buildService();
+    prisma.notificationTemplate.create.mockResolvedValue({ ...row, id: "nt-custom" });
+    prisma.notificationTemplate.findUnique.mockResolvedValue({ id: "nt-1" });
+    prisma.notificationTemplate.update.mockResolvedValue(row);
+    prisma.notificationTemplate.delete.mockResolvedValue(row);
+    prisma.notificationTemplate.upsert.mockResolvedValue(row);
+    const noActor = { resolveActor: vi.fn().mockResolvedValue({ id: "", departmentId: null, role: "SYSTEM_ADMIN" }) };
+
+    const anonymous = new NotificationTemplatesService(prisma as never, noActor as never, audit as never);
+    await anonymous.create({ sub: "ghost" } as never, { name: "ن", nameEn: "N", subject: "م", subjectEn: "S", body: "ن", bodyEn: "B" });
+    await anonymous.update({ sub: "ghost" } as never, "nt-1", { name: "محدث" });
+    await anonymous.remove({ sub: "ghost" } as never, "nt-1");
+    await anonymous.reset({ sub: "ghost" } as never, "nt-1");
+
+    for (const call of audit.record.mock.calls) {
+      expect(call[0]).toMatchObject({ actorId: null });
+    }
+    expect(audit.record).toHaveBeenCalledTimes(4);
   });
 });

@@ -7,7 +7,9 @@ import { JwtAuthGuard } from "./jwt-auth.guard";
 const principal = { sub: "sub-1", username: "sara", roles: [], identityRoles: [] };
 
 function config(): ConfigService {
-  return { get: (key: string, fallback?: string) => (key === "SESSION_COOKIE_NAME" ? "edas_session" : fallback) } as unknown as ConfigService;
+  return {
+    get: (key: string, fallback?: string) => (key === "SESSION_COOKIE_NAME" ? "edas_session" : fallback),
+  } as unknown as ConfigService;
 }
 
 function reflector(isPublic: boolean): Reflector {
@@ -50,18 +52,18 @@ describe("JwtAuthGuard cookie sessions", () => {
     const { guard, sessions } = build();
     sessions.resolve.mockResolvedValue(null);
 
-    await expect(
-      guard.canActivate(context({ method: "GET", headers: { cookie: "edas_session=gone" } })),
-    ).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(guard.canActivate(context({ method: "GET", headers: { cookie: "edas_session=gone" } }))).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
   });
 
   it("requires a matching CSRF token on mutating cookie requests", async () => {
     const { guard, sessions } = build();
     sessions.resolve.mockResolvedValue(principal);
 
-    await expect(
-      guard.canActivate(context({ method: "POST", headers: { cookie: "edas_session=session-1" } })),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(guard.canActivate(context({ method: "POST", headers: { cookie: "edas_session=session-1" } }))).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
 
     await expect(
       guard.canActivate(
@@ -77,6 +79,45 @@ describe("JwtAuthGuard cookie sessions", () => {
     await expect(
       guard.canActivate(
         context({ method: "DELETE", headers: { cookie: "edas_session=session-1; edas_csrf=token-1", "x-csrf-token": "token-1" } }),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it("leaves a bearer request to the passport strategy", async () => {
+    const parent = Object.getPrototypeOf(JwtAuthGuard.prototype) as { canActivate: (ctx: ExecutionContext) => Promise<boolean> };
+    const passport = vi.spyOn(parent, "canActivate").mockResolvedValue(true);
+    const { guard, sessions } = build();
+
+    await expect(guard.canActivate(context({ method: "GET", headers: { authorization: "Bearer jwt-token" } }))).resolves.toBe(true);
+
+    expect(passport).toHaveBeenCalled();
+    expect(sessions.resolve).not.toHaveBeenCalled();
+    passport.mockRestore();
+  });
+
+  it("leaves a request without a session cookie to the passport strategy", async () => {
+    const parent = Object.getPrototypeOf(JwtAuthGuard.prototype) as { canActivate: (ctx: ExecutionContext) => Promise<boolean> };
+    const passport = vi.spyOn(parent, "canActivate").mockResolvedValue(true);
+    const { guard, sessions } = build();
+
+    await expect(guard.canActivate(context({ method: "GET", headers: { authorization: "Basic abc" } }))).resolves.toBe(true);
+    await expect(guard.canActivate(context({ method: "GET", headers: {} }))).resolves.toBe(true);
+
+    expect(passport).toHaveBeenCalledTimes(2);
+    expect(sessions.resolve).not.toHaveBeenCalled();
+    passport.mockRestore();
+  });
+
+  it("reads the first value of a repeated CSRF header", async () => {
+    const { guard, sessions } = build();
+    sessions.resolve.mockResolvedValue(principal);
+
+    await expect(
+      guard.canActivate(
+        context({
+          method: "POST",
+          headers: { cookie: "edas_session=session-1; edas_csrf=token-1", "x-csrf-token": ["token-1", "other"] },
+        }),
       ),
     ).resolves.toBe(true);
   });

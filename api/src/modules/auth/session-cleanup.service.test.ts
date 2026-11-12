@@ -76,6 +76,23 @@ describe("SessionCleanupService scheduling", () => {
     service.onApplicationShutdown();
   });
 
+  it("names a sweep that rejected with a value that is not an error", async () => {
+    const { service, sessions, error } = build();
+    sessions.purgeExpired.mockRejectedValueOnce("connection reset").mockResolvedValue(0);
+
+    service.onApplicationBootstrap();
+    await vi.advanceTimersByTimeAsync(3_600_000);
+
+    expect(error).toHaveBeenCalledWith("Session cleanup failed: connection reset");
+    service.onApplicationShutdown();
+  });
+
+  it("tolerates shutdown before bootstrap", () => {
+    const { service } = build();
+
+    expect(() => service.onApplicationShutdown()).not.toThrow();
+  });
+
   it("does not overlap a sweep that is still running", async () => {
     const { service, sessions } = build();
     let finish: (count: number) => void = () => undefined;

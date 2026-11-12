@@ -167,6 +167,21 @@ describe("PreviewController.content", () => {
     body.destroy();
     response.destroy();
   });
+
+  it("ends the stream without a new status when the body breaks after the headers went out", async () => {
+    const { controller, storage } = build();
+    const body = new Readable({ read() {} });
+    storage.getObjectStream.mockResolvedValue({ body, contentLength: 9, contentRange: null, contentType: "application/pdf" });
+    const response = new FakeResponse();
+    (response as unknown as { headersSent: boolean }).headersSent = true;
+
+    await controller.content(principal, "file-1", "original", undefined, response as unknown as Response);
+    body.emit("error", new Error("socket hang up"));
+
+    expect(response.statusCode).toBe(200);
+    body.destroy();
+    response.destroy();
+  });
 });
 
 describe("PreviewController delegation", () => {

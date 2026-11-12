@@ -76,4 +76,93 @@ describe("JsonLogger", () => {
     expect(resolveLogLevel("nonsense")).toBe("log");
     expect(resolveLogLevel(undefined, "warn")).toBe("warn");
   });
+
+  it("writes a lone message without a context", () => {
+    const { logger, parse } = capture();
+
+    logger.log("bare");
+
+    const [record] = parse();
+    expect(record).toMatchObject({ level: "log", message: "bare" });
+    expect(record.context).toBeUndefined();
+  });
+
+  it("keeps a trailing payload as a parameter instead of a context", () => {
+    const { logger, parse } = capture();
+
+    logger.log("failed", { attempt: 2 });
+
+    const [record] = parse();
+    expect(record.context).toBeUndefined();
+    expect(record.params).toEqual([{ attempt: 2 }]);
+  });
+
+  it("moves a stack-looking parameter into the stack field", () => {
+    const { logger, parse } = capture();
+
+    logger.log("retrying", "Error: upstream refused", "Gateway");
+
+    const [record] = parse();
+    expect(record.stack).toBe("Error: upstream refused");
+    expect(record.params).toBeUndefined();
+  });
+
+  it("serializes an undefined head as null", () => {
+    const { logger, parse } = capture();
+
+    logger.log(undefined, "Bootstrap");
+
+    expect(parse()[0].message).toBeNull();
+  });
+
+  it("drops user, method and path when the context only carries a correlation id", () => {
+    const { logger, parse } = capture();
+
+    runWithLogContext({ correlationId: "corr-1" }, () => logger.log("quiet"));
+
+    const [record] = parse();
+    expect(record.correlationId).toBe("corr-1");
+    expect(record.userId).toBeUndefined();
+    expect(record.method).toBeUndefined();
+    expect(record.path).toBeUndefined();
+    expect(record.route).toBeUndefined();
+  });
+
+  it("prefers the matched route over the raw path", () => {
+    const { logger, parse } = capture();
+
+    runWithLogContext({ correlationId: "corr-2", route: "GET /api/v1/documents/:id", path: "/api/v1/documents/42" }, () =>
+      logger.log("routed"),
+    );
+
+    const [record] = parse();
+    expect(record.route).toBe("GET /api/v1/documents/:id");
+    expect(record.path).toBeUndefined();
+  });
+
+  it("omits the stack field when only a plain string is given", () => {
+    const { logger, parse } = capture();
+
+    logger.log("plain", "Done");
+
+    expect(parse()[0].stack).toBeUndefined();
+  });
+
+  it("serializes an Error and a BigInt parameter", () => {
+    const { logger, parse } = capture();
+
+    logger.log("retrying", new Error("socket closed"), 10n, "Gateway");
+
+    const [record] = parse();
+    expect(record.params).toEqual([{ name: "Error", message: "socket closed", stack: expect.any(String) }, "10"]);
+  });
+
+  it("writes fatal messages to the error sink", () => {
+    const { logger, lines, parse } = capture();
+
+    logger.fatal("process exiting", "Bootstrap");
+
+    expect(lines[0].stream).toBe("error");
+    expect(parse()[0]).toMatchObject({ level: "error", message: "process exiting", context: "Bootstrap" });
+  });
 });

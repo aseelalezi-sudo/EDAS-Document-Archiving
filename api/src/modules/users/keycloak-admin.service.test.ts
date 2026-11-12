@@ -307,6 +307,24 @@ describe("KeycloakAdminService failures and token reuse", () => {
     ).rejects.toThrow(new ConflictException("User exists with same username"));
   });
 
+  it("describes a conflict that carried no provider detail", async () => {
+    stubFetch({
+      [TOKEN_URL]: tokenRoute(),
+      "POST /admin/realms/edas/users": () => reply({ status: 409 }),
+    });
+
+    await expect(
+      new KeycloakAdminService(makeConfig()).createUser({
+        username: "ahmad",
+        email: "ahmad@edas.local",
+        firstName: "أحمد",
+        lastName: "علي",
+        password: "Password123",
+        role: "EMPLOYEE",
+      }),
+    ).rejects.toThrow(new ConflictException("Keycloak rejected the change as conflicting"));
+  });
+
   it("maps other failures to ServiceUnavailable and survives an unreadable error body", async () => {
     stubFetch({
       [TOKEN_URL]: tokenRoute(),

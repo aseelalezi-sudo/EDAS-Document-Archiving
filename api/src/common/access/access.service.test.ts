@@ -306,4 +306,52 @@ describe("AccessService.assert", () => {
 
     await expect(service.assert(principal, "VIEW", "folder-1")).resolves.toMatchObject({ id: "user-1" });
   });
+
+  it("refuses an action the account does not hold and skips the folder check without a folder", async () => {
+    const { service, prisma } = buildService({ id: "user-1", role: "EMPLOYEE", departmentId: "dept-1" });
+    prisma.rolePolicy.findUnique.mockResolvedValue({ actions: [] });
+
+    await expect(service.assert(principal, "VIEW")).rejects.toThrow("Missing permission: VIEW");
+    expect(prisma.folder.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe("AccessService scopes", () => {
+  it("returns the department of a scoped account for the list filter", async () => {
+    const { service } = buildService({ id: "user-1", role: "EMPLOYEE", departmentId: "dept-1" });
+
+    await expect(service.listScope({ sub: "sub-1", username: "zoe", roles: [], identityRoles: [] } as never)).resolves.toEqual({
+      actor: { id: "user-1", role: "EMPLOYEE", departmentId: "dept-1" },
+      departmentId: "dept-1",
+    });
+  });
+
+  it("falls back to an empty capability set for a role the shared matrix does not know", async () => {
+    const { service } = buildService({ id: "user-1", role: "GHOST", departmentId: "dept-1" });
+
+    await expect(service.permissionsFor({ id: "user-1", role: "GHOST", departmentId: "dept-1" } as never)).resolves.toEqual(new Set());
+  });
+
+  it("matches a department rule and ignores a rule that targets nobody in the request", async () => {
+    const { service, prisma } = buildService({ id: "user-1", role: "EMPLOYEE", departmentId: "dept-1" });
+    prisma.aclRule.findMany.mockResolvedValue([
+      { principalType: "DEPARTMENT", principalId: "dept-1", actions: ["APPROVE"] },
+      { principalType: "USER", principalId: "user-9", actions: ["DELETE"] },
+    ]);
+    const actor: Actor = { id: "user-1", role: "EMPLOYEE", departmentId: "dept-1" };
+
+    const scoped = await service.permissionsFor(actor, "folder-1");
+
+    expect(scoped.has("APPROVE")).toBe(true);
+    expect(scoped.has("DELETE")).toBe(false);
+  });
+
+  it("stops the chain when the folder row does not exist", async () => {
+    const { service, prisma } = buildService({ id: "user-1", role: "EMPLOYEE", departmentId: "dept-1" });
+    prisma.folder.findUnique.mockResolvedValue(null as never);
+
+    await service.permissionsFor({ id: "user-1", role: "EMPLOYEE", departmentId: "dept-1" }, "folder-missing");
+
+    expect(prisma.aclRule.findMany).toHaveBeenCalledWith({ where: { folderId: { in: [] } } });
+  });
 });

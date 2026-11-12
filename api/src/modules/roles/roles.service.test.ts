@@ -77,5 +77,50 @@ describe("RolesService", () => {
     await expect(service.update({ sub: "actor-1" } as never, "SUPERUSER", ["VIEW"])).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.update({ sub: "actor-1" } as never, "SYSTEM_ADMIN", ["VIEW"])).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.update({ sub: "actor-1" } as never, "AUDITOR", ["EXPORT"])).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.update({ sub: "actor-1" } as never, "AUDITOR", ["VIEW", "FLY"] as never)).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    await expect(service.reset({ sub: "actor-1" } as never, "SUPERUSER")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("marks a stored policy as customised and reports its update time", async () => {
+    const { service, prisma } = buildService();
+    prisma.rolePolicy.findMany.mockResolvedValue([
+      { role: "EMPLOYEE", actions: ["VIEW"], updatedAt: new Date("2026-10-22T10:00:00.000Z") },
+    ]);
+    prisma.user.groupBy.mockResolvedValue([]);
+
+    const result = await service.list();
+
+    expect(result.items.find((item) => item.role === "EMPLOYEE")).toEqual({
+      role: "EMPLOYEE",
+      actions: ["VIEW"],
+      customized: true,
+      userCount: 0,
+      updatedAt: "2026-10-22T10:00:00.000Z",
+    });
+  });
+
+  it("leaves the audit actor empty for an account without an id", async () => {
+    const { service, prisma, access, audit } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "", departmentId: "dept-1", role: "SYSTEM_ADMIN" });
+    prisma.rolePolicy.upsert.mockResolvedValue({
+      role: "AUDITOR",
+      actions: ["VIEW"],
+      updatedAt: new Date("2026-10-22T10:00:00.000Z"),
+    });
+    prisma.user.count.mockResolvedValue(0);
+
+    await service.update({ sub: "ghost" } as never, "AUDITOR", ["VIEW"]);
+    await service.reset({ sub: "ghost" } as never, "AUDITOR");
+
+    expect(prisma.rolePolicy.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ updatedById: null }),
+        update: expect.objectContaining({ updatedById: null }),
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.update", actorId: null }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.reset", actorId: null }));
   });
 });

@@ -40,6 +40,17 @@ describe("MetricsController", () => {
     await expect(controller.scrape("Bearer wrong", response())).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it("serves the metrics when the bearer token matches", async () => {
+    const res = response();
+    const token = "t".repeat(32);
+    const controller = new MetricsController(metrics(), config({ METRICS_TOKEN: ` ${token} ` }));
+
+    await controller.scrape(`Bearer ${token}`, res);
+
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(String(res.end.mock.calls[0][0])).toContain("edas_process_cpu_user_seconds_total");
+  });
+
   it("refuses to expose metrics in production when no token is set", async () => {
     const controller = new MetricsController(metrics(), config({ NODE_ENV: "production" }));
 

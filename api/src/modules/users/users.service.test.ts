@@ -93,4 +93,54 @@ describe("UsersService", () => {
     expect(result).toEqual({ count: 0, sessions: [] });
     expect(keycloak.listSessions).not.toHaveBeenCalled();
   });
+
+  it("updates a self-service profile that is not linked to the identity provider", async () => {
+    const { service, prisma, access, audit, keycloak } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "", departmentId: "dept-1", role: UserRole.EMPLOYEE });
+    prisma.user.findUnique.mockResolvedValue({ id: "user-1", keycloakSub: null });
+    prisma.user.update.mockResolvedValue({ id: "user-1" });
+
+    await service.updateSelf({ sub: "ghost" } as never, { name: undefined, phone: "+962" } as never);
+
+    expect(keycloak.updateUser).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "user.update-self", actorId: null, entityId: "user-1", detail: { phone: "+962" } }),
+    );
+  });
+
+  it("splits a missing name into empty identity-provider parts", async () => {
+    const { service, prisma, access, keycloak } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "user-1", departmentId: "dept-1", role: UserRole.EMPLOYEE });
+    prisma.user.findUnique.mockResolvedValue({ id: "user-1", keycloakSub: "kc-sub-1" });
+    prisma.user.update.mockResolvedValue({ id: "user-1" });
+
+    await service.updateSelf({ sub: "user-1" } as never, {} as never);
+
+    expect(keycloak.updateUser).toHaveBeenCalledWith("kc-sub-1", {
+      email: undefined,
+      firstName: undefined,
+      lastName: undefined,
+    });
+  });
+
+  it("deletes a user that has no identity-provider account", async () => {
+    const { service, prisma, access, audit, keycloak } = buildService();
+    access.resolveActor.mockResolvedValue({ id: "actor-1", departmentId: null, role: UserRole.SYSTEM_ADMIN });
+    prisma.user.findUnique.mockResolvedValue({ id: "user-1", username: "ahmad", keycloakSub: null });
+    prisma.user.delete.mockResolvedValue({});
+
+    await expect(service.remove({ sub: "actor-1" } as never, "user-1")).resolves.toEqual({ id: "user-1", deleted: true });
+    expect(keycloak.deleteUser).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "user.delete", actorId: "actor-1" }));
+  });
+
+  it("maps a session without clients or timestamps", async () => {
+    const { service, prisma, keycloak } = buildService();
+    prisma.user.findFirst.mockResolvedValue({ id: "user-1", keycloakSub: "kc-sub-1" });
+    keycloak.listSessions.mockResolvedValue([{ id: "s2" }]);
+
+    const result = await service.sessions({ sub: "actor-1", roles: [UserRole.SYSTEM_ADMIN] } as never, "user-1");
+
+    expect(result.sessions[0]).toEqual({ id: "s2", ipAddress: null, started: null, lastAccess: null, clients: [] });
+  });
 });

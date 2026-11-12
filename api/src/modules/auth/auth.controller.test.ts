@@ -194,4 +194,33 @@ describe("AuthController session handling", () => {
     await overridden.controller.login(undefined, fakeRequest(), overrideResponse as never);
     expect(overrideResponse.cookie).toHaveBeenCalledWith(LOGIN_COOKIE, "pending-1", expect.objectContaining({ secure: false }));
   });
+
+  it("falls back to lax cookies when the configuration returns nothing", async () => {
+    const auth = {
+      beginLogin: vi.fn().mockResolvedValue({ url: "https://kc.example/auth", pendingCookie: "pending-1" }),
+      pendingLoginTtlSeconds: 600,
+    };
+    const controller = new AuthController(auth as never, { get: () => undefined } as never);
+    const response = fakeResponse();
+
+    await controller.login(undefined, fakeRequest(), response as never);
+
+    expect(response.cookie).toHaveBeenCalledWith(LOGIN_COOKIE, "pending-1", expect.objectContaining({ secure: false, sameSite: "lax" }));
+  });
+});
+
+describe("AuthController callback failures", () => {
+  it("reports a failure that is not an error object", async () => {
+    const { controller, auth } = build();
+    auth.completeLogin.mockRejectedValue("provider offline");
+    const errorLog = vi.spyOn(Logger.prototype, "error").mockImplementation(() => undefined);
+    const response = fakeResponse();
+
+    await controller.callback("code", "state", undefined, undefined, fakeRequest(), response as never);
+
+    expect(errorLog).toHaveBeenCalledWith("Login callback failed: Login failed");
+    expect(response.redirect).toHaveBeenCalledWith(
+      `http://localhost:5173/#/auth/callback?error=${encodeURIComponent(arabicReason("Login failed", 500))}`,
+    );
+  });
 });

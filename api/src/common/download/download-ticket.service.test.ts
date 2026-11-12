@@ -1,3 +1,4 @@
+import { createCipheriv, createHash, randomBytes } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { DownloadTicketService } from "./download-ticket.service";
 
@@ -18,6 +19,49 @@ function buildService(prisma = { downloadTicketUse: ledger() }) {
 }
 
 describe("DownloadTicketService", () => {
+  const SECRET = "unit-test-download-secret-0123456789";
+
+  function seal(payload: unknown, secret = SECRET): string {
+    const key = createHash("sha256").update(secret).digest();
+    const iv = randomBytes(12);
+    const cipher = createCipheriv("aes-256-gcm", key, iv);
+    const body = Buffer.concat([cipher.update(JSON.stringify(payload), "utf8"), cipher.final()]);
+    return Buffer.concat([iv, cipher.getAuthTag(), body]).toString("base64url");
+  }
+
+  function withSecret(secret: string) {
+    return new DownloadTicketService({ get: () => secret } as never, { downloadTicketUse: ledger() } as never);
+  }
+
+  it("rejects a configured secret that is too short", () => {
+    expect(() => withSecret("short")).toThrow("DOWNLOAD_TICKET_SECRET must be at least 32 characters");
+  });
+
+  it("seals with the configured secret so another replica can verify it", () => {
+    const first = withSecret(SECRET);
+    const second = withSecret(SECRET);
+
+    const ticket = first.issue("file", "file-1", "user-1");
+
+    expect(second.verify("file", "file-1", ticket)).toMatchObject({ kind: "file", id: "file-1", sub: "user-1" });
+  });
+
+  it("rejects a well-formed ticket that omits an identity, an expiry or a known kind", () => {
+    const service = withSecret(SECRET);
+    const exp = Date.now() + 60_000;
+
+    expect(service.verify("file", "file-1", seal({ kind: "file", sub: "user-1", exp, n: "nonce" }))).toBeNull();
+    expect(service.verify("file", "file-1", seal({ kind: "file", id: "file-1", sub: "user-1", exp: "later", n: "nonce" }))).toBeNull();
+    expect(service.verify("file", "file-1", seal({ kind: "bundle", id: "file-1", sub: "user-1", exp, n: "nonce" }))).toBeNull();
+  });
+
+  it("rejects a ticket whose authentication tag was corrupted", () => {
+    const service = withSecret(SECRET);
+    const forged = Buffer.concat([randomBytes(12), randomBytes(16), randomBytes(20)]).toString("base64url");
+
+    expect(service.verify("file", "file-1", forged)).toBeNull();
+  });
+
   it("issues a sealed ticket that verifies with a nonce and expiry", () => {
     const { service } = buildService();
 

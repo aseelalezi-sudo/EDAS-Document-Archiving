@@ -68,4 +68,46 @@ describe("MetricsInterceptor", () => {
 
     expect(await metrics.scrape()).toContain('edas_http_requests_total{method="GET",route="unmatched",status="404"} 1');
   });
+
+  it("passes a non-HTTP context through without timing it", async () => {
+    const metrics = build();
+    const interceptor = new MetricsInterceptor(metrics);
+    const context = {
+      getType: () => "rpc",
+      switchToHttp: () => {
+        throw new Error("should not switch to http");
+      },
+    } as unknown as ExecutionContext;
+
+    const result = interceptor.intercept(context, { handle: () => of(null) });
+
+    expect(result).toBeDefined();
+    expect(await metrics.scrape()).not.toContain("edas_http_requests_total{");
+  });
+
+  it("records one sample when the response reports both finish and close", async () => {
+    const metrics = build();
+    const interceptor = new MetricsInterceptor(metrics);
+    const response = Object.assign(new EventEmitter(), { statusCode: 500 }) as unknown as Response & EventEmitter;
+    const request = { method: "PATCH", route: { path: "/documents/:id" } };
+    const context = {
+      getType: () => "http",
+      switchToHttp: () => ({ getRequest: () => request, getResponse: () => response }),
+    } as unknown as ExecutionContext;
+
+    await new Promise<void>((resolve) => {
+      interceptor.intercept(context, { handle: () => of(undefined) }).subscribe({
+        complete: () => {
+          response.emit("finish");
+          response.emit("close");
+          resolve();
+        },
+      });
+    });
+
+    const text = await metrics.scrape();
+    expect(text).toContain('edas_http_requests_total{method="PATCH",route="/documents/:id",status="500"} 1');
+    expect(text).not.toContain('method="PATCH",route="/documents/:id",status="500"} 2');
+    expect(text).toContain("edas_http_requests_in_flight 0");
+  });
 });
