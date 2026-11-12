@@ -200,6 +200,25 @@ describe("AuditService.verifyChain", () => {
     expect(report.breaks).toEqual([]);
   });
 
+  it("reports an empty ledger as a clean chain", async () => {
+    const { service } = buildService([]);
+
+    const report = await service.verifyChain();
+
+    expect(report).toMatchObject({ events: 0, maxSeq: null, sequenceGaps: 0, valid: true, breakCount: 0, baseline: null, alarm: false });
+  });
+
+  it("compares a row against a predecessor whose hash was blanked out", async () => {
+    const first = event(1, null);
+    const second = { ...event(2, first.hash), hash: null };
+    const { service } = buildService([first, second, event(3, null)]);
+
+    const report = await service.verifyChain();
+
+    expect(report.breaks).toEqual([expect.objectContaining({ seq: 2, kind: "missing_hash" })]);
+    expect(report.sequenceGaps).toBe(0);
+  });
+
   it("reads the chain in sequence order, not by the application clock", async () => {
     const { service, prisma } = buildService([event(1, null)]);
 
@@ -230,6 +249,27 @@ describe("AuditService.verifyChain", () => {
     const report = await service.verifyChain();
 
     expect(report.breaks).toEqual([expect.objectContaining({ seq: 2, kind: "broken_link", expected: first.hash })]);
+  });
+
+  it("flags a first row that claims a predecessor it cannot have", async () => {
+    const { service } = buildService([event(1, "ghost-head")]);
+
+    const report = await service.verifyChain();
+
+    expect(report.breaks).toEqual([expect.objectContaining({ seq: 1, kind: "broken_link", expected: null })]);
+    expect(report.genesisCount).toBe(0);
+  });
+
+  it("orders several forked parents by the number of children", async () => {
+    const first = event(1, null);
+    const shared = event(2, first.hash);
+    const rows = [first, shared, event(3, first.hash), event(5, shared.hash), event(6, shared.hash), event(7, shared.hash)];
+    const { service } = buildService(rows);
+
+    const report = await service.verifyChain();
+
+    expect(report.forks.map((fork) => fork.children)).toEqual([3, 2]);
+    expect(report.forkCount).toBe(3);
   });
 
   it("flags a rewritten hash", async () => {
@@ -358,5 +398,41 @@ describe("AuditService.verifyChain", () => {
     expect(report).toMatchObject({ forkCount: 1, knownForkCount: 1, newForkCount: 0, alarm: false });
     expect(report.baseline?.forkCount).toBe(report.forkCount);
     expect(report.forks[0]).toMatchObject({ children: 2, seqs: [2, 3], known: true });
+  });
+
+  it("reads a baseline whose detail never recorded the figures", async () => {
+    const { service, prisma } = buildService([event(1, null)]);
+    prisma.auditEvent.findFirst.mockResolvedValue({
+      id: "baseline-1",
+      seq: BigInt(9),
+      ts: new Date("2026-11-01T00:00:00.000Z"),
+      detail: null,
+    });
+
+    const report = await service.verifyChain();
+
+    expect(report.baseline).toEqual({
+      seq: 9,
+      id: "baseline-1",
+      recordedAt: "2026-11-01T00:00:00.000Z",
+      events: 0,
+      maxSeq: null,
+      breakCount: 0,
+      forkCount: 0,
+    });
+  });
+
+  it("counts a fork fingerprint it cannot parse as a single child", async () => {
+    const { service, prisma } = buildService([event(1, null)]);
+    prisma.auditEvent.findFirst.mockResolvedValue({
+      id: "baseline-1",
+      seq: BigInt(9),
+      ts: new Date("2026-11-01T00:00:00.000Z"),
+      detail: { forks: ["unparseable", "parent|"] },
+    });
+
+    const report = await service.verifyChain();
+
+    expect(report.baseline?.forkCount).toBe(0);
   });
 });

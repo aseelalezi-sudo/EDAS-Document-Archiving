@@ -205,6 +205,71 @@ describe("ReportsService schedule writes", () => {
     await expect(service.updateSchedule({ sub: "user-mgr" } as never, "sch-ghost", {} as never)).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.deleteSchedule({ sub: "user-mgr" } as never, "sch-ghost")).rejects.toBeInstanceOf(NotFoundException);
   });
+
+  it("records a schedule created by an actor without an identifier", async () => {
+    const { service, audit } = build({ id: "", departmentId: "dept-finance", role: "DEPT_MANAGER" });
+
+    await service.createSchedule(
+      { sub: "user-mgr" } as never,
+      { name: "تقرير مالي", reportType: "rpt-2", cadence: ReportCadence.DAILY } as never,
+    );
+
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "report.schedule.create", actorId: null }));
+  });
+
+  it("recomputes the next slot from a filters-only change by an actor without an identifier", async () => {
+    const { service, prisma, audit } = build({ id: "", departmentId: "dept-finance", role: "DEPT_MANAGER" });
+    prisma.reportSchedule.findUnique.mockResolvedValue({
+      id: "sch-1",
+      name: "Finance",
+      cadence: ReportCadence.DAILY,
+      departmentId: "dept-finance",
+      filters: null,
+    });
+
+    await service.updateSchedule({ sub: "user-mgr" } as never, "sch-1", { filters: { time: "07:15" } } as never);
+
+    const data = prisma.reportSchedule.update.mock.calls[0][0].data as Record<string, unknown>;
+    const nextRunAt = data.nextRunAt as Date;
+    expect([nextRunAt.getUTCHours(), nextRunAt.getUTCMinutes()]).toEqual([7, 15]);
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "report.schedule.update", actorId: null }));
+  });
+
+  it("discards the queued runs of a schedule deleted by an actor without an identifier", async () => {
+    const { service, prisma, audit } = build({ id: "", departmentId: "dept-finance", role: "DEPT_MANAGER" });
+    prisma.reportSchedule.findUnique.mockResolvedValue({
+      id: "sch-1",
+      name: "Finance",
+      cadence: ReportCadence.DAILY,
+      departmentId: "dept-finance",
+      filters: null,
+    });
+    prisma.reportRun.deleteMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.deleteSchedule({ sub: "user-mgr" } as never, "sch-1")).resolves.toEqual({
+      id: "sch-1",
+      deleted: true,
+      discardedRuns: 1,
+    });
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "report.schedule.delete", actorId: null }));
+  });
+
+  it("lets a global actor delete an organisation-wide schedule", async () => {
+    const { service, prisma } = build(ADMIN);
+    prisma.reportSchedule.findUnique.mockResolvedValue({
+      id: "sch-1",
+      name: "Org weekly",
+      cadence: ReportCadence.WEEKLY,
+      departmentId: null,
+      filters: null,
+    });
+
+    await expect(service.deleteSchedule({ sub: "user-admin" } as never, "sch-1")).resolves.toMatchObject({
+      id: "sch-1",
+      deleted: true,
+    });
+    expect(prisma.reportSchedule.delete).toHaveBeenCalledWith({ where: { id: "sch-1" } });
+  });
 });
 
 describe("ReportsService schedule runs", () => {
@@ -388,6 +453,57 @@ describe("ReportsService schedule runs", () => {
     expect(invalidEmails.notifications.push).not.toHaveBeenCalled();
   });
 
+  it("defaults a run without a format to PDF and records an actor without an identifier", async () => {
+    const { service, prisma, audit } = build({ id: "", departmentId: "dept-finance", role: "DEPT_MANAGER" });
+    prisma.reportSchedule.findUnique.mockResolvedValue(managedSchedule({ filters: {} }));
+
+    await service.runSchedule({ sub: "user-mgr" } as never, "sch-1");
+
+    expect(prisma.reportRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ format: "pdf", requestedById: null }) }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "report.run.create", actorId: null }));
+  });
+
+  it("starts a manual run for an actor without an identifier", async () => {
+    const { service, prisma, audit } = build({ id: "", departmentId: "dept-finance", role: "DEPT_MANAGER" });
+
+    await service.createRun({ sub: "user-mgr" } as never, { reportType: "rpt-2", format: "csv" } as never);
+
+    expect(prisma.reportRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ requestedById: null }) }),
+    );
+    expect(prisma.fileObject.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ uploadedById: null }) }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "report.run.complete", actorId: null }));
+  });
+
+  it("leaves a manual run unscoped when a global actor requests no schedule", async () => {
+    const { service, prisma } = build(ADMIN);
+
+    await service.createRun({ sub: "user-admin" } as never, { reportType: "rpt-2", format: "csv" } as never);
+
+    expect(prisma.reportRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ departmentId: null }) }),
+    );
+    expect(prisma.document.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.not.objectContaining({ departmentId: expect.anything() }) }),
+    );
+  });
+
+  it("falls back to an unscoped report for a manager without a department", async () => {
+    const { service, prisma } = build({ id: "user-x", departmentId: null, role: "DEPT_MANAGER" });
+
+    await service.createRun({ sub: "user-x" } as never, { reportType: "rpt-2", format: "csv" } as never);
+
+    expect(prisma.reportRun.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ departmentId: null }) }),
+    );
+    const { where } = prisma.document.findMany.mock.calls[0][0] as { where: { departmentId: unknown } };
+    expect(where.departmentId).toEqual({ in: [] });
+  });
+
   it("keeps sweeping due schedules when one report fails to render", async () => {
     const due = {
       id: "sch-1",
@@ -420,6 +536,59 @@ describe("ReportsService schedule runs", () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ detail: expect.objectContaining({ trigger: "scheduler", scopeDepartmentId: "dept-1" }) }),
     );
+  });
+
+  it("leaves a due organisation-wide schedule unscoped", async () => {
+    const due = {
+      id: "sch-1",
+      reportType: "rpt-1",
+      cadence: ReportCadence.DAILY,
+      filters: null,
+      departmentId: null,
+      nextRunAt: new Date("2026-11-01T00:00:00.000Z"),
+    };
+    const tx = {
+      reportSchedule: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      reportRun: { create: vi.fn().mockResolvedValue({ id: "run-1" }) },
+    };
+    const prisma = {
+      reportSchedule: { findMany: vi.fn().mockResolvedValue([due]) },
+      $transaction: vi.fn(async (work: (client: typeof tx) => Promise<unknown>) => work(tx)),
+    };
+    const audit = { record: vi.fn().mockResolvedValue(undefined) };
+    const service = new ReportsService(
+      prisma as never,
+      {} as never,
+      audit as never,
+      {} as never,
+      {} as never,
+      new DownloadTicketService({ get: () => undefined } as never, { downloadTicketUse: ticketLedger() } as never),
+    );
+    (service as unknown as { executeRunFor: () => Promise<void> }).executeRunFor = vi.fn().mockResolvedValue(undefined);
+
+    await expect(service.runDueSchedules()).resolves.toBe(1);
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ trigger: "scheduler", scopeDepartmentId: null }) }),
+    );
+  });
+});
+
+describe("ReportsService run listings", () => {
+  it("defaults paging and passes the report type and status filters for a global role", async () => {
+    const { service, prisma } = build(ADMIN);
+
+    const result = await service.listRuns(
+      { sub: "user-admin" } as never,
+      {
+        reportType: "rpt-2",
+        status: "completed",
+      } as never,
+    );
+
+    const where = prisma.reportRun.findMany.mock.calls[0][0].where as Record<string, unknown>;
+    expect(where).toEqual({ reportType: "rpt-2", status: "completed" });
+    expect(prisma.reportRun.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 0, take: 25 }));
+    expect(result.meta).toEqual({ page: 1, pageSize: 25, total: 0 });
   });
 });
 
@@ -471,6 +640,67 @@ describe("ReportsService ticket error paths", () => {
       sizeBytes: 1024,
     });
   });
+
+  it("records the proxied download and the first delivery for an actor without an identifier", async () => {
+    const { service, prisma, audit } = build({ id: "", departmentId: null, role: "AUDITOR" });
+    prisma.reportRun.findUnique.mockResolvedValue({ id: "run-9", departmentId: null, requestedById: null, fileId: "file-1" });
+    prisma.fileObject.findUnique.mockResolvedValue({
+      id: "file-1",
+      storageKey: "reports/2026/run-9.csv",
+      originalName: "rpt-2-run-9.csv",
+      sizeBytes: 1024n,
+    });
+
+    const { url } = await service.downloadRun({ sub: "sub-anon" } as never, "run-9");
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "report.run.download", actorId: null }));
+
+    await service.openTicketDownload("run-9", ticketOf(url));
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.objectContaining({ delivered: true }), actorId: null }),
+    );
+  });
+
+  it("reports a run whose file is not ready and a file row that vanished", async () => {
+    const pending = build(MANAGER);
+    pending.prisma.reportRun.findUnique.mockResolvedValue({
+      id: "run-9",
+      departmentId: "dept-finance",
+      requestedById: null,
+      fileId: null,
+    });
+    await expect(pending.service.downloadRun({ sub: "user-mgr" } as never, "run-9")).rejects.toThrow(/not ready/);
+
+    const orphan = build(MANAGER);
+    orphan.prisma.reportRun.findUnique.mockResolvedValue({
+      id: "run-9",
+      departmentId: "dept-finance",
+      requestedById: null,
+      fileId: "file-ghost",
+    });
+    await expect(orphan.service.downloadRun({ sub: "user-mgr" } as never, "run-9")).rejects.toThrow(/not ready/);
+  });
+
+  it("rethrows a vanished run from a ticket without recording a denial", async () => {
+    const { service, prisma, audit } = build(MANAGER);
+    prisma.reportRun.findUnique.mockResolvedValue({
+      id: "run-9",
+      departmentId: "dept-finance",
+      requestedById: null,
+      fileId: "file-1",
+    });
+    prisma.fileObject.findUnique.mockResolvedValue({
+      id: "file-1",
+      storageKey: "reports/2026/run-9.csv",
+      originalName: "rpt-2-run-9.csv",
+      sizeBytes: 1024n,
+    });
+    const { url } = await service.downloadRun({ sub: "user-mgr" } as never, "run-9");
+    prisma.reportRun.findUnique.mockResolvedValue(null);
+    audit.record.mockClear();
+
+    await expect(service.openTicketDownload("run-9", ticketOf(url))).rejects.toBeInstanceOf(NotFoundException);
+    expect(audit.record).not.toHaveBeenCalled();
+  });
 });
 
 describe("ReportsService report tables", () => {
@@ -483,7 +713,10 @@ describe("ReportsService report tables", () => {
     prisma.document.groupBy.mockImplementation((args: { where: { status?: string } }) =>
       Promise.resolve(
         args.where.status
-          ? [{ departmentId: "dept-1", _count: { _all: 4 } }]
+          ? [
+              { departmentId: "dept-1", _count: { _all: 4 } },
+              { departmentId: null, _count: { _all: 1 } },
+            ]
           : [
               { departmentId: "dept-1", _count: { _all: 10 }, _sum: { sizeBytes: 2048n } },
               { departmentId: null, _count: { _all: 2 }, _sum: { sizeBytes: null } },
@@ -661,6 +894,24 @@ describe("ReportsService report tables", () => {
     await expect(builder(service)("rpt-unknown", undefined)).rejects.toThrow(/Unknown report type/);
   });
 
+  it("scopes the approval and retention tables only when a department is requested", async () => {
+    const global = build(ADMIN);
+
+    await builder(global.service)("rpt-4", undefined);
+    expect(global.prisma.approvalInstance.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { completedAt: { not: null } } }),
+    );
+
+    await builder(global.service)("rpt-5", undefined);
+    expect(global.prisma.retentionItem.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {} }));
+
+    const scoped = build(MANAGER);
+    await builder(scoped.service)("rpt-8", "dept-finance");
+    expect(scoped.prisma.legalHold.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { documents: { some: { document: { departmentId: "dept-finance" } } } } }),
+    );
+  });
+
   it("formats byte sizes across all four units", () => {
     const formatBytes = (build(MANAGER).service as unknown as { formatBytes: (value: bigint | number) => string }).formatBytes.bind(
       build(MANAGER).service,
@@ -681,6 +932,15 @@ describe("ReportsService report tables", () => {
 
     expect(pdf.subarray(0, 5).toString("ascii")).toBe("%PDF-");
     expect(pdf.toString("latin1")).toContain("/Type /Page");
+  });
+
+  it("renders a row that carries fewer values than the table has columns", async () => {
+    const { service } = build(MANAGER);
+    const toPdf = (service as unknown as { toPdf: (table: ReportTableFixture) => Promise<Buffer> }).toPdf.bind(service);
+
+    const pdf = await toPdf({ title: "صف ناقص", columns: ["الاسم", "الرمز", "العدد"], rows: [["صف وحيد"]] });
+
+    expect(pdf.subarray(0, 5).toString("ascii")).toBe("%PDF-");
   });
 });
 
@@ -718,6 +978,16 @@ describe("ReportsService summary aggregation", () => {
 
     expect(prisma.user.count).toHaveBeenCalledWith(undefined);
     expect(prisma.document.count).toHaveBeenCalledWith({ where: {} });
+  });
+
+  it("falls back to an UNKNOWN bucket for a group without a status or classification", async () => {
+    const { service, prisma } = build(MANAGER);
+    prisma.document.groupBy.mockResolvedValue([{ _count: { _all: 2 } }]);
+
+    const result = await service.summary({ sub: "user-mgr" } as never);
+
+    expect(result.documents.byStatus).toEqual({ UNKNOWN: 2 });
+    expect(result.documents.byClassification).toEqual({ UNKNOWN: 2 });
   });
 });
 

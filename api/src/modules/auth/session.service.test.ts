@@ -21,7 +21,9 @@ function buildService() {
     },
     user: { findUnique: vi.fn().mockResolvedValue({ status: "ACTIVE", role: "EMPLOYEE" }) },
   };
-  const config = { get: (key: string, fallback?: string) => (key === "SESSION_SECRET" ? "s".repeat(32) : fallback) } as unknown as ConfigService;
+  const config = {
+    get: (key: string, fallback?: string) => (key === "SESSION_SECRET" ? "s".repeat(32) : fallback),
+  } as unknown as ConfigService;
   const crypto = new SessionCryptoService(config);
   const oidc = { refresh: vi.fn() };
   const service = new SessionService(prisma as never, crypto, oidc as never, config);
@@ -37,6 +39,12 @@ function open(crypto: SessionCryptoService, value: string): string | null {
 }
 
 describe("SessionService.create", () => {
+  it("defaults the session lifetime to eight hours", () => {
+    const { service } = buildService();
+
+    expect(service.ttlSeconds).toBe(28800);
+  });
+
   it("stores the tokens sealed and derives the expiry from the provider", async () => {
     const { service, prisma, crypto } = buildService();
 
@@ -52,6 +60,16 @@ describe("SessionService.create", () => {
     expect(open(crypto, String(data.accessToken))).toBe(ACCESS);
     expect(open(crypto, String(data.refreshToken))).toBe("rt-1");
     expect(open(crypto, String(data.idToken))).toBe("id-1");
+  });
+
+  it("stores a token set without refresh material or client context", async () => {
+    const { service, prisma } = buildService();
+
+    await service.create({ access_token: ACCESS, expires_in: 900, token_type: "Bearer" }, "sub-1", {});
+
+    const data = prisma.userSession.create.mock.calls[0][0].data as Record<string, unknown>;
+    expect(data).toMatchObject({ refreshToken: null, idToken: null, refreshExpiresAt: null, userAgent: null, ip: null });
+    expect(data.accessExpiresAt).toBeInstanceOf(Date);
   });
 });
 
@@ -128,6 +146,89 @@ describe("SessionService.resolve", () => {
 
     await expect(service.resolve("missing")).resolves.toBeNull();
   });
+
+  it("refuses to refresh a session that never kept a refresh token", async () => {
+    const { service, prisma, oidc, crypto } = buildService();
+    prisma.userSession.findUnique.mockResolvedValue({
+      id: "session-1",
+      keycloakSub: "sub-1",
+      accessToken: sealed(crypto, ACCESS),
+      refreshToken: null,
+      accessExpiresAt: new Date(Date.now() - 1000),
+      refreshExpiresAt: new Date(Date.now() + 1_800_000),
+    });
+
+    await expect(service.resolve("session-1")).resolves.toBeNull();
+    expect(oidc.refresh).not.toHaveBeenCalled();
+    expect(prisma.userSession.deleteMany).toHaveBeenCalledWith({ where: { id: "session-1" } });
+  });
+
+  it("treats an unreadable access token as a dead session", async () => {
+    const { service, prisma } = buildService();
+    prisma.userSession.findUnique.mockResolvedValue({
+      id: "session-1",
+      keycloakSub: "sub-1",
+      accessToken: "not-a-sealed-token",
+      refreshToken: null,
+      accessExpiresAt: new Date(Date.now() + 600_000),
+      refreshExpiresAt: new Date(Date.now() + 1_800_000),
+    });
+
+    await expect(service.resolve("session-1")).resolves.toBeNull();
+    expect(prisma.userSession.deleteMany).toHaveBeenCalledWith({ where: { id: "session-1" } });
+  });
+
+  it("keeps the stored refresh material when the provider returns only an access token", async () => {
+    const { service, prisma, oidc, crypto } = buildService();
+    const refreshed = jwt({ sub: "sub-1", preferred_username: "sara", realm_access: { roles: ["employee"] } });
+    const refreshExpiresAt = new Date(Date.now() + 1_800_000);
+    const idToken = sealed(crypto, "id-1");
+    prisma.userSession.findUnique.mockResolvedValue({
+      id: "session-1",
+      keycloakSub: "sub-1",
+      accessToken: sealed(crypto, ACCESS),
+      refreshToken: sealed(crypto, "rt-1"),
+      idToken,
+      accessExpiresAt: new Date(Date.now() - 1000),
+      refreshExpiresAt,
+    });
+    oidc.refresh.mockResolvedValue({ access_token: refreshed, expires_in: 900, token_type: "Bearer" });
+
+    await expect(service.resolve("session-1")).resolves.toMatchObject({ sub: "sub-1" });
+
+    const update = prisma.userSession.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(open(crypto, String(update.data.refreshToken))).toBe("rt-1");
+    expect(update.data.idToken).toBe(idToken);
+    expect(update.data.refreshExpiresAt).toEqual(refreshExpiresAt);
+  });
+
+  it("adopts a rotated id token and the refresh window the provider returns", async () => {
+    const { service, prisma, oidc, crypto } = buildService();
+    const refreshed = jwt({ sub: "sub-1", preferred_username: "sara", realm_access: { roles: ["employee"] } });
+    prisma.userSession.findUnique.mockResolvedValue({
+      id: "session-1",
+      keycloakSub: "sub-1",
+      accessToken: sealed(crypto, ACCESS),
+      refreshToken: sealed(crypto, "rt-1"),
+      idToken: sealed(crypto, "id-1"),
+      accessExpiresAt: new Date(Date.now() - 1000),
+      refreshExpiresAt: new Date(Date.now() + 60_000),
+    });
+    oidc.refresh.mockResolvedValue({
+      access_token: refreshed,
+      refresh_token: "rt-2",
+      id_token: "id-2",
+      expires_in: 900,
+      refresh_expires_in: 1800,
+      token_type: "Bearer",
+    });
+
+    await expect(service.resolve("session-1")).resolves.toMatchObject({ sub: "sub-1" });
+
+    const update = prisma.userSession.update.mock.calls[0][0] as { data: Record<string, unknown> };
+    expect(open(crypto, String(update.data.idToken))).toBe("id-2");
+    expect((update.data.refreshExpiresAt as Date).getTime()).toBeGreaterThan(Date.now() + 1_700_000);
+  });
 });
 
 describe("SessionService revocation", () => {
@@ -145,6 +246,22 @@ describe("SessionService revocation", () => {
 
     await expect(service.revokeForSub("sub-1")).resolves.toBe(2);
     expect(prisma.userSession.deleteMany).toHaveBeenCalledWith({ where: { keycloakSub: "sub-1" } });
+  });
+
+  it("logs out a session that never stored an id token", async () => {
+    const { service, prisma } = buildService();
+    prisma.userSession.findUnique.mockResolvedValue({ id: "session-1", keycloakSub: "sub-1", idToken: null });
+
+    await expect(service.logout("session-1")).resolves.toEqual({ idToken: null, keycloakSub: "sub-1" });
+    expect(prisma.userSession.deleteMany).toHaveBeenCalledWith({ where: { id: "session-1" } });
+  });
+
+  it("logs out cleanly when the session row is already gone", async () => {
+    const { service, prisma } = buildService();
+    prisma.userSession.findUnique.mockResolvedValue(null);
+
+    await expect(service.logout("session-1")).resolves.toEqual({ idToken: null, keycloakSub: null });
+    expect(prisma.userSession.deleteMany).toHaveBeenCalledWith({ where: { id: "session-1" } });
   });
 });
 

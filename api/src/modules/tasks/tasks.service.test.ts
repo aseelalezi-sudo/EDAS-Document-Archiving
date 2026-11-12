@@ -91,6 +91,24 @@ describe("TasksService list", () => {
     const where = (prisma.taskItem.findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
     expect(where.AND).toBeUndefined();
   });
+
+  it("filters by assignee on request", async () => {
+    const { service, prisma } = buildService();
+
+    await service.list(PRINCIPAL, { assigneeId: "user-2" } as never);
+
+    const where = (prisma.taskItem.findMany.mock.calls[0][0] as { where: Record<string, unknown> }).where;
+    expect(where.assigneeId).toBe("user-2");
+  });
+
+  it("scopes an actor without an identifier to no task at all", async () => {
+    const { service, prisma } = buildService({ ...EMPLOYEE, id: "" });
+
+    await service.list(PRINCIPAL, {} as never);
+
+    const where = (prisma.taskItem.findMany.mock.calls[0][0] as { where: { AND: { OR: unknown[] }[] } }).where;
+    expect(where.AND[0].OR).toEqual([{ assigneeId: "__none__" }, { createdById: "__none__" }]);
+  });
 });
 
 describe("TasksService create", () => {
@@ -112,18 +130,14 @@ describe("TasksService create", () => {
     const { service, prisma } = buildService();
     prisma.user.findUnique.mockResolvedValue({ departmentId: "dept-legal" });
 
-    await expect(service.create(PRINCIPAL, { title: "مهمة", assigneeId: "user-9" } as never)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    );
+    await expect(service.create(PRINCIPAL, { title: "مهمة", assigneeId: "user-9" } as never)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("refuses an assignee that does not exist", async () => {
     const { service, prisma } = buildService();
     prisma.user.findUnique.mockResolvedValue(null);
 
-    await expect(service.create(PRINCIPAL, { title: "مهمة", assigneeId: "ghost" } as never)).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(service.create(PRINCIPAL, { title: "مهمة", assigneeId: "ghost" } as never)).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("defaults the assignee to the creator and records the task", async () => {
@@ -146,6 +160,16 @@ describe("TasksService create", () => {
       expect.objectContaining({ action: "task.create", entityId: "task-new", departmentId: "dept-fin" }),
     );
     expect(task.id).toBe("task-new");
+  });
+
+  it("links an existing document and leaves the due date open", async () => {
+    const { service, prisma } = buildService();
+
+    await service.create(PRINCIPAL, { title: "مهمة", documentId: "doc-1" } as never);
+
+    expect(prisma.document.findUnique).toHaveBeenCalledWith({ where: { id: "doc-1" }, select: { id: true } });
+    const data = (prisma.taskItem.create.mock.calls[0][0] as { data: { documentId: string; dueAt: unknown } }).data;
+    expect(data).toMatchObject({ documentId: "doc-1", dueAt: null });
   });
 });
 
@@ -183,6 +207,25 @@ describe("TasksService update and complete", () => {
     const data = (prisma.taskItem.update.mock.calls[0][0] as { data: { completedAt: unknown } }).data;
     expect(data.completedAt).toBeNull();
   });
+
+  it("reassigns a task and moves its due date without touching the status", async () => {
+    const { service, prisma } = buildService();
+
+    await service.update(PRINCIPAL, "task-1", { assigneeId: "user-3", dueAt: "2026-12-05T00:00:00.000Z" } as never);
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { id: "user-3" }, select: { departmentId: true } });
+    const data = (prisma.taskItem.update.mock.calls[0][0] as { data: { status?: string; dueAt: Date; completedAt: unknown } }).data;
+    expect(data.dueAt).toEqual(new Date("2026-12-05T00:00:00.000Z"));
+    expect(data.completedAt).toBeNull();
+  });
+
+  it("audits an update performed by an actor without an identifier", async () => {
+    const { service, audit } = buildService({ ...EMPLOYEE, id: "" }, taskRow({ assigneeId: "", createdById: "" }));
+
+    await service.update(PRINCIPAL, "task-1", { title: "محدثة" } as never);
+
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "task.update", actorId: null }));
+  });
 });
 
 describe("TasksService comments", () => {
@@ -214,6 +257,17 @@ describe("TasksService comments", () => {
     expect(comment.body).toBe("تمت المراجعة");
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "task.comment", detail: { commentId: "comment-2" } }));
   });
+
+  it("keeps an anonymous comment unsigned", async () => {
+    const { service, prisma } = buildService({ ...EMPLOYEE, id: "" }, taskRow({ assigneeId: "", createdById: "" }));
+
+    await service.addComment(PRINCIPAL, "task-1", { body: "تم" } as never);
+
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(prisma.taskComment.create).toHaveBeenCalledWith({
+      data: { taskId: "task-1", authorId: null, authorName: null, body: "تم" },
+    });
+  });
 });
 
 describe("TasksService remove", () => {
@@ -229,6 +283,14 @@ describe("TasksService remove", () => {
 
     await expect(service.remove(PRINCIPAL, "task-1")).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.taskItem.delete).not.toHaveBeenCalled();
+  });
+
+  it("lets an actor without an identifier delete the task it created", async () => {
+    const { service, audit } = buildService({ ...EMPLOYEE, id: "" }, taskRow({ assigneeId: "", createdById: "" }));
+
+    await expect(service.remove(PRINCIPAL, "task-1")).resolves.toEqual({ id: "task-1", deleted: true });
+
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "task.delete", actorId: null }));
   });
 
   it("deletes and audits when the actor created the task", async () => {

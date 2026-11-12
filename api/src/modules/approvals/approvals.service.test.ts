@@ -160,20 +160,29 @@ describe("ApprovalsService chains", () => {
     expect(prisma.approvalChain.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          steps: { create: [{ order: 1, role: "SUPERVISOR", name: undefined }, { order: 5, role: "DEPT_MANAGER", name: undefined }] },
+          steps: {
+            create: [
+              { order: 1, role: "SUPERVISOR", name: undefined },
+              { order: 5, role: "DEPT_MANAGER", name: undefined },
+            ],
+          },
         }),
       }),
     );
-    expect(audit.record).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "approval.chain.create", departmentId: "dept-fin" }),
-    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "approval.chain.create", departmentId: "dept-fin" }));
   });
 
   it("refuses duplicate step orders before writing", async () => {
     const { service, prisma } = buildService();
 
     await expect(
-      service.createChain(PRINCIPAL, { name: "x", steps: [{ role: "SUPERVISOR", order: 2 }, { role: "AUDITOR", order: 2 }] } as never),
+      service.createChain(PRINCIPAL, {
+        name: "x",
+        steps: [
+          { role: "SUPERVISOR", order: 2 },
+          { role: "AUDITOR", order: 2 },
+        ],
+      } as never),
     ).rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.approvalChain.create).not.toHaveBeenCalled();
   });
@@ -189,9 +198,9 @@ describe("ApprovalsService chains", () => {
     const { service, prisma, state } = buildService();
     state.pendingForChain = 1;
 
-    await expect(
-      service.updateChain(PRINCIPAL, "chain-1", { steps: [{ role: "SUPERVISOR" }] } as never),
-    ).rejects.toBeInstanceOf(ConflictException);
+    await expect(service.updateChain(PRINCIPAL, "chain-1", { steps: [{ role: "SUPERVISOR" }] } as never)).rejects.toBeInstanceOf(
+      ConflictException,
+    );
     expect(prisma.approvalStep.deleteMany).not.toHaveBeenCalled();
     expect(prisma.approvalStep.createMany).not.toHaveBeenCalled();
   });
@@ -212,6 +221,40 @@ describe("ApprovalsService chains", () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: "approval.chain.update", detail: expect.objectContaining({ name: "معاد تسميتها" }) }),
     );
+  });
+
+  it("renames a chain without touching its steps", async () => {
+    const { service, prisma } = buildService();
+
+    await service.updateChain(PRINCIPAL, "chain-1", { name: "اسم جديد" } as never);
+
+    expect(prisma.approvalStep.deleteMany).not.toHaveBeenCalled();
+    expect(prisma.approvalStep.createMany).not.toHaveBeenCalled();
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it("refuses duplicate step orders when rewriting a chain", async () => {
+    const { service, prisma } = buildService();
+
+    await expect(
+      service.updateChain(PRINCIPAL, "chain-1", {
+        steps: [
+          { role: "SUPERVISOR", order: 3 },
+          { role: "AUDITOR", order: 3 },
+        ],
+      } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it("audits chain changes made by an actor without an identifier", async () => {
+    const { service, audit } = buildService({ id: "", departmentId: "dept-fin", role: "DEPT_MANAGER" });
+
+    await service.createChain(PRINCIPAL, { name: "جديدة", steps: [{ role: "SUPERVISOR" }] } as never);
+    await service.updateChain(PRINCIPAL, "chain-1", { name: "أحدث" } as never);
+
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "approval.chain.create", actorId: null }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "approval.chain.update", actorId: null }));
   });
 });
 
@@ -287,6 +330,24 @@ describe("ApprovalsService queries", () => {
 
     expect(result.items.map((item) => item.id)).toEqual(["ap-1", "ap-2"]);
   });
+
+  it("passes the status and document filters into the list query", async () => {
+    const { service, prisma } = buildService();
+
+    await service.list(PRINCIPAL, { status: "PENDING", documentId: "doc-1" } as never);
+
+    const where = (prisma.approvalInstance.findMany.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where;
+    expect(where).toMatchObject({ status: "PENDING", documentId: "doc-1" });
+  });
+
+  it("keeps reading an instance whose chain was removed", async () => {
+    const { service, state } = buildService();
+    state.instance = instance({ chain: null, chainId: null });
+
+    const view = await service.get(PRINCIPAL, "ap-1");
+
+    expect(view).toMatchObject({ chainName: null, steps: [], currentStep: null });
+  });
 });
 
 describe("ApprovalsService submit", () => {
@@ -348,6 +409,28 @@ describe("ApprovalsService submit", () => {
     );
     expect(notifications.pushToRole).toHaveBeenCalledWith("SUPERVISOR", expect.objectContaining({ entityId: "doc-1" }));
     expect(view).toEqual(expect.objectContaining({ id: "ap-1", currentStep: { order: 1, role: "SUPERVISOR" } }));
+  });
+
+  it("submits against an explicitly chosen chain", async () => {
+    const { service, prisma } = buildService();
+
+    await service.submit(PRINCIPAL, { documentId: "doc-1", chainId: "chain-1" } as never);
+
+    expect(prisma.approvalChain.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: "chain-1" }, include: expect.anything() }),
+    );
+    expect(prisma.approvalChain.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("starts the approval without a requester identifier", async () => {
+    const { service, prisma, audit } = buildService({ id: "", departmentId: "dept-fin", role: "SUPERVISOR" });
+
+    await service.submit(PRINCIPAL, { documentId: "doc-1" } as never);
+
+    expect(prisma.approvalInstance.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ startedById: null }) }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "approval.submit", actorId: null }), expect.anything());
   });
 });
 
@@ -435,5 +518,76 @@ describe("ApprovalsService decide", () => {
       expect.objectContaining({ userId: "user-sup", title: "تم رفض الوثيقة", level: "ERROR" }),
     );
     expect(view.status).toBe("REJECTED");
+  });
+
+  it("decides an instance that no longer records its chain id", async () => {
+    const { service, state } = buildService();
+    state.instance = instance({ chainId: null });
+
+    const view = await service.decide(PRINCIPAL, "ap-1", { decision: "APPROVED" } as never);
+
+    expect(view.status).toBe("PENDING");
+  });
+
+  it("reports an approval that disappeared while the decision was being written", async () => {
+    const { service, prisma } = buildService();
+    prisma.approvalInstance.findUnique.mockResolvedValueOnce(instance() as never).mockResolvedValueOnce(null as never);
+
+    await expect(service.decide(PRINCIPAL, "ap-1", { decision: "APPROVED" } as never)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("refuses an instance that lost its chain entirely", async () => {
+    const { service, state } = buildService();
+    state.instance = instance({ chain: null });
+
+    await expect(service.decide(PRINCIPAL, "ap-1", { decision: "APPROVED" } as never)).rejects.toThrow(/no steps/);
+  });
+
+  it("refuses an instance whose steps are all decided", async () => {
+    const { service, state } = buildService();
+    state.instance = instance({ decisions: [decision(1), decision(2)] });
+    state.decisionRows = [decision(1), decision(2)];
+
+    await expect(service.decide(PRINCIPAL, "ap-1", { decision: "APPROVED" } as never)).rejects.toThrow(/no pending step/);
+  });
+
+  it("rethrows a decision failure that is not a duplicate step", async () => {
+    const { service, state } = buildService();
+    state.decisionError = new Error("database went away");
+
+    await expect(service.decide(PRINCIPAL, "ap-1", { decision: "APPROVED" } as never)).rejects.toThrow("database went away");
+  });
+
+  it("reports an approval that vanished before it could be returned", async () => {
+    const { service, prisma } = buildService();
+    prisma.approvalInstance.findUnique
+      .mockResolvedValueOnce(instance() as never)
+      .mockResolvedValueOnce(instance() as never)
+      .mockResolvedValueOnce(null as never);
+
+    await expect(service.decide(PRINCIPAL, "ap-1", { decision: "APPROVED" } as never)).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("completes an approval that nobody claimed without notifying anyone", async () => {
+    const { service, notifications, state } = buildService(MANAGER);
+    state.instance = instance({ decisions: [decision(1)], startedById: null });
+    state.decisionRows = [decision(1)];
+
+    const view = await service.decide(PRINCIPAL, "ap-1", { decision: "APPROVED" } as never);
+
+    expect(view.status).toBe("APPROVED");
+    expect(notifications.push).not.toHaveBeenCalled();
+    expect(notifications.pushToRole).not.toHaveBeenCalled();
+  });
+
+  it("records a decision made by an actor without an identifier", async () => {
+    const { service, prisma, audit } = buildService({ id: "", departmentId: "dept-fin", role: "SUPERVISOR" });
+
+    await service.decide(PRINCIPAL, "ap-1", { decision: "APPROVED" } as never);
+
+    expect(prisma.approvalDecision.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ decidedById: null }) }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "approval.decide", actorId: null }), expect.anything());
   });
 });
