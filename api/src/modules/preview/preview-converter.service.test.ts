@@ -185,6 +185,52 @@ describe("PreviewConverterService office detection", () => {
       process.env.PATH = originalPath;
     }
   });
+
+  it("searches PATH with colon separators and no extension list off Windows", async () => {
+    const originalPath = process.env.PATH;
+    process.env.PATH = "/opt/posix-bin:/usr/bin";
+    existing.add(join("/opt/posix-bin", "soffice"));
+    spawnPlan({ version: { stdout: "LibreOffice 7.6" } });
+
+    try {
+      await withPlatform("linux", async () => {
+        await expect(service().officeAvailability()).resolves.toMatchObject({ command: join("/opt/posix-bin", "soffice") });
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
+
+  it("falls back to the default extension list when PATHEXT is absent", async () => {
+    const originalPath = process.env.PATH;
+    const originalExt = process.env.PATHEXT;
+    process.env.PATH = "C:\\Tools";
+    delete process.env.PATHEXT;
+    existing.add(join("C:\\Tools", "soffice.exe"));
+    spawnPlan({ version: { stdout: "LibreOffice 7.5" } });
+
+    try {
+      await withPlatform("win32", async () => {
+        await expect(service().officeAvailability()).resolves.toMatchObject({ command: join("C:\\Tools", "soffice.exe") });
+      });
+    } finally {
+      process.env.PATH = originalPath;
+      if (originalExt === undefined) delete process.env.PATHEXT;
+      else process.env.PATHEXT = originalExt;
+    }
+  });
+
+  it("treats an unset PATH as an empty search list", async () => {
+    const originalPath = process.env.PATH;
+    delete process.env.PATH;
+    spawnPlan({ code: 0 });
+
+    try {
+      await expect(service().officeAvailability()).resolves.toEqual({ command: null, version: null });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+  });
 });
 
 describe("PreviewConverterService ODA detection", () => {
@@ -218,6 +264,7 @@ describe("PreviewConverterService ODA detection", () => {
     existing.add("C:\\Program Files\\ODA");
     readdirSyncMock.mockReturnValue([
       { name: "not-a-dir.txt", isDirectory: () => false },
+      { name: "Old ODA", isDirectory: () => true },
       { name: "ODAFileConverter 25.4.0", isDirectory: () => true },
     ]);
     existing.add("C:\\Program Files\\ODA\\ODAFileConverter 25.4.0\\ODAFileConverter.exe");
@@ -249,6 +296,33 @@ describe("PreviewConverterService ODA detection", () => {
     } finally {
       process.env.PATH = originalPath;
     }
+  });
+
+  it("does not scan Windows install roots off Windows", async () => {
+    const originalPath = process.env.PATH;
+    process.env.PATH = "";
+    readdirSyncMock.mockReturnValue([]);
+
+    try {
+      await withPlatform("linux", async () => {
+        await expect(service().odaAvailability()).resolves.toEqual({ command: null, version: null });
+      });
+    } finally {
+      process.env.PATH = originalPath;
+    }
+    expect(readdirSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a version check failure that is not an Error instance", async () => {
+    existing.add("/opt/soffice");
+    spawnMock.mockImplementation(() => {
+      throw { code: "EACCES" };
+    });
+
+    await expect(service({ PREVIEW_SOFFICE_PATH: "/opt/soffice" }).officeAvailability()).resolves.toEqual({
+      command: "/opt/soffice",
+      version: null,
+    });
   });
 
   it("caches the detection", async () => {
@@ -382,10 +456,146 @@ describe("PreviewConverterService office conversion", () => {
     expect(spawnMock.mock.calls.some(([command]) => command === "taskkill")).toBe(true);
   });
 
+  it("times out a converter that never reported a pid", async () => {
+    existing.add("/opt/soffice");
+    const dir = await workDir();
+    spawnMock.mockImplementation((_command: string, args: string[]) => {
+      const child = new FakeChild();
+      child.pid = undefined as unknown as number;
+      if (args.includes("--version")) {
+        process.nextTick(() => {
+          child.stdout.emit("data", Buffer.from("LibreOffice 7.6.4.2"));
+          child.emit("close", 0);
+        });
+      }
+      return child;
+    });
+
+    await expect(service({ PREVIEW_SOFFICE_PATH: "/opt/soffice" }).convertOfficeToPdf(join(dir, "a.docx"), dir, 20)).rejects.toBeInstanceOf(
+      ConversionTimeoutError,
+    );
+    expect(spawnMock.mock.calls.some(([command]) => command === "taskkill")).toBe(false);
+  });
+
+  it("falls back to a direct kill when the taskkill helper cannot start", async () => {
+    existing.add("/opt/soffice");
+    const dir = await workDir();
+    let conversion!: FakeChild;
+    spawnMock.mockImplementation((command: string, args: string[]) => {
+      if (command === "taskkill") throw new Error("spawn taskkill EACCES");
+      const child = new FakeChild();
+      if (args.includes("--version")) {
+        process.nextTick(() => {
+          child.stdout.emit("data", Buffer.from("LibreOffice 7.6.4.2"));
+          child.emit("close", 0);
+        });
+      } else {
+        conversion = child;
+      }
+      return child;
+    });
+
+    await withPlatform("win32", async () => {
+      await expect(
+        service({ PREVIEW_SOFFICE_PATH: "/opt/soffice" }).convertOfficeToPdf(join(dir, "a.docx"), dir, 20),
+      ).rejects.toBeInstanceOf(ConversionTimeoutError);
+    });
+
+    expect(conversion.kill).toHaveBeenCalledWith("SIGKILL");
+  });
+
+  it("kills the process group directly off Windows", async () => {
+    existing.add("/opt/soffice");
+    const dir = await workDir();
+    spawnMock.mockImplementation((_command: string, args: string[]) => {
+      const child = new FakeChild();
+      child.pid = 987_654_321;
+      if (args.includes("--version")) {
+        process.nextTick(() => {
+          child.stdout.emit("data", Buffer.from("LibreOffice 7.6.4.2"));
+          child.emit("close", 0);
+        });
+      }
+      return child;
+    });
+
+    await withPlatform("linux", async () => {
+      await expect(
+        service({ PREVIEW_SOFFICE_PATH: "/opt/soffice" }).convertOfficeToPdf(join(dir, "a.docx"), dir, 20),
+      ).rejects.toBeInstanceOf(ConversionTimeoutError);
+    });
+  });
+
+  it("ignores process events that arrive after the timeout", async () => {
+    existing.add("/opt/soffice");
+    const dir = await workDir();
+    let conversion!: FakeChild;
+    spawnMock.mockImplementation((command: string, args: string[]) => {
+      const child = new FakeChild();
+      if (command !== "/opt/soffice") return child;
+      if (args.includes("--version")) {
+        process.nextTick(() => {
+          child.stdout.emit("data", Buffer.from("LibreOffice 7.6.4.2"));
+          child.emit("close", 0);
+        });
+      } else {
+        conversion = child;
+      }
+      return child;
+    });
+
+    await expect(service({ PREVIEW_SOFFICE_PATH: "/opt/soffice" }).convertOfficeToPdf(join(dir, "a.docx"), dir, 20)).rejects.toBeInstanceOf(
+      ConversionTimeoutError,
+    );
+
+    conversion.emit("error", new Error("late spawn error"));
+    conversion.emit("close", 0);
+  });
+
+  it("reports a missing output when the output directory disappears", async () => {
+    existing.add("/opt/soffice");
+    const dir = await workDir();
+    const outputDir = join(dir, "office-output");
+    spawnMock.mockImplementation((_command: string, args: string[]) => {
+      const child = new FakeChild();
+      if (args.includes("--version")) {
+        process.nextTick(() => {
+          child.stdout.emit("data", Buffer.from("LibreOffice 7.6.4.2"));
+          child.emit("close", 0);
+        });
+      } else {
+        setImmediate(async () => {
+          await rm(outputDir, { recursive: true, force: true });
+          child.emit("close", 0);
+        });
+      }
+      return child;
+    });
+
+    await expect(
+      service({ PREVIEW_SOFFICE_PATH: "/opt/soffice" }).convertOfficeToPdf(join(dir, "a.docx"), dir, 30_000),
+    ).rejects.toBeInstanceOf(ConversionOutputMissingError);
+  });
+
   it("caps the captured converter output", async () => {
     existing.add("/opt/soffice");
     const dir = await workDir();
-    spawnPlan({ stdout: "x".repeat(40_000), code: 1 });
+    spawnMock.mockImplementation((_command: string, args: string[]) => {
+      const child = new FakeChild();
+      if (args.includes("--version")) {
+        process.nextTick(() => {
+          child.stdout.emit("data", Buffer.from("LibreOffice 7.6.4.2"));
+          child.emit("close", 0);
+        });
+      } else {
+        setImmediate(() => {
+          child.stdout.emit("data", Buffer.from("x".repeat(40_000)));
+          child.stdout.emit("data", Buffer.from("tail"));
+          child.emit("close", 1);
+        });
+      }
+      return child;
+    });
 
     await expect(service({ PREVIEW_SOFFICE_PATH: "/opt/soffice" }).convertOfficeToPdf(join(dir, "a.docx"), dir, 30_000)).rejects.toThrow(
       /^Converter exited with code 1: x+$/,

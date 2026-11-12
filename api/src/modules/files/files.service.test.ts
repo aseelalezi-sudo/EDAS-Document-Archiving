@@ -254,6 +254,15 @@ describe("FilesService presignUpload", () => {
       context.service.presignUpload({ sub: "user-1" } as never, { fileName: "scan.pdf", mimeType: "application/x-custom" } as never),
     ).rejects.toThrow(/does not match the declared type/);
   });
+
+  it("refuses a request that declares no content type at all", async () => {
+    const { service, prisma } = buildService();
+
+    await expect(service.presignUpload({ sub: "user-1" } as never, { fileName: "scan.pdf", mimeType: undefined } as never)).rejects.toThrow(
+      /Unsupported content type/,
+    );
+    expect(prisma.uploadIntent.create).not.toHaveBeenCalled();
+  });
 });
 
 describe("FilesService register", () => {
@@ -567,6 +576,44 @@ describe("FilesService register", () => {
       ),
     ).resolves.toMatchObject({ mimeType: "application/pdf" });
   });
+
+  it("refuses a registration without a name", async () => {
+    const { service, prisma } = buildService();
+
+    await expect(
+      service.register(
+        { sub: "user-1" } as never,
+        {
+          storageKey: "documents/2026/8a7c.pdf",
+          originalName: undefined,
+          mimeType: "application/pdf",
+          sizeBytes: 2048,
+          checksumSha256: CHECKSUM,
+        } as never,
+      ),
+    ).rejects.toThrow(/File name must not be empty/);
+    expect(prisma.uploadIntent.findUnique).not.toHaveBeenCalled();
+  });
+
+  it("refuses an empty storage key and one over the length limit", async () => {
+    const { service, prisma } = buildService();
+
+    for (const storageKey of ["", `documents/2026/${"a".repeat(512)}.pdf`]) {
+      await expect(
+        service.register(
+          { sub: "user-1" } as never,
+          {
+            storageKey,
+            originalName: "x.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: 2048,
+            checksumSha256: CHECKSUM,
+          } as never,
+        ),
+      ).rejects.toThrow(/Invalid storage key/);
+    }
+    expect(prisma.uploadIntent.findUnique).not.toHaveBeenCalled();
+  });
 });
 
 describe("FilesService downloadUrl", () => {
@@ -729,6 +776,30 @@ describe("FilesService downloadUrl", () => {
     expect(context.audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ detail: expect.objectContaining({ inline: false, requestedInline: true }) }),
     );
+  });
+
+  it("keeps the denial when the failure audit is down before the ACL check", async () => {
+    const context = buildService();
+    context.access.assertDepartmentScope.mockRejectedValue(new ForbiddenException("Out of department scope"));
+    context.audit.record.mockRejectedValue(new Error("audit chain locked"));
+    withFile(context, {
+      ...fileObject(),
+      versions: [{ document: { id: "doc-9", departmentId: "dept-9", folderId: "folder-9", ownerId: "user-9", deletedAt: null } }],
+    });
+
+    await expect(context.service.downloadUrl({ sub: "user-1" } as never, "file-1")).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("keeps the denial when the download audit is down after the file check", async () => {
+    const context = buildService();
+    context.access.permissionsFor.mockResolvedValue(new Set<AclAction>([AclAction.VIEW]));
+    context.audit.record.mockRejectedValue(new Error("audit chain locked"));
+    withFile(context, {
+      ...fileObject(),
+      versions: [{ document: { id: "doc-1", departmentId: "dept-1", folderId: "folder-1", ownerId: "user-2", deletedAt: null } }],
+    });
+
+    await expect(context.service.downloadUrl({ sub: "user-1" } as never, "file-1")).rejects.toThrow(/Missing permission: EXPORT/);
   });
 });
 
@@ -1175,5 +1246,24 @@ describe("FilesService purgeUnreferenced", () => {
     });
 
     expect(result.deleted).toMatchObject({ files: 1, objects: 1, failures: ["documents/2026/loose.pdf"] });
+  });
+
+  it("confirms an empty purge without touching storage", async () => {
+    const { service, prisma, storage, audit } = buildService({ id: "user-9", departmentId: null, role: "SYSTEM_ADMIN" });
+    prisma.fileObject.findMany.mockResolvedValue([]);
+    storage.listKeys.mockResolvedValue({ keys: [], truncated: false });
+
+    const result = await service.purgeUnreferenced({ sub: "user-9" } as never, { confirm: true });
+
+    expect(result.deleted).toEqual({ files: 0, objects: 0, failures: [] });
+    expect(prisma.fileObject.deleteMany).not.toHaveBeenCalled();
+    expect(storage.remove).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "file.purge_unreferenced",
+        result: "success",
+        detail: expect.objectContaining({ files: 0, objects: 0 }),
+      }),
+    );
   });
 });
