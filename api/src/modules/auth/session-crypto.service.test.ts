@@ -36,4 +36,21 @@ describe("SessionCryptoService", () => {
   it("refuses a SESSION_SECRET shorter than 32 characters", () => {
     expect(() => new SessionCryptoService(config({ SESSION_SECRET: "too-short" }))).toThrow(/SESSION_SECRET/);
   });
+
+  it("falls back to a per-process key when SESSION_SECRET is absent", () => {
+    const first = new SessionCryptoService(config({}));
+    const second = new SessionCryptoService(config({}));
+
+    const sealed = first.seal({ value: "ephemeral" });
+
+    expect(first.open<{ value: string }>(sealed)).toEqual({ value: "ephemeral" });
+    expect(second.open(sealed)).toBeNull();
+  });
+
+  it("ignores a blank SESSION_SECRET instead of deriving a key from whitespace", () => {
+    const first = new SessionCryptoService(config({ SESSION_SECRET: "   " }));
+    const second = new SessionCryptoService(config({ SESSION_SECRET: "   " }));
+
+    expect(second.open(first.seal({ value: "blank" }))).toBeNull();
+  });
 });

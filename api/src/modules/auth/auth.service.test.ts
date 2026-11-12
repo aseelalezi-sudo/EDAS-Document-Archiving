@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { BadRequestException } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
+import { UserRole, UserStatus } from "@prisma/client";
+import type { Principal } from "../../common/auth/principal";
+import { LOGIN_COOKIE } from "../../common/auth/session.constants";
 import { AuthService, sanitizeReturnTo } from "./auth.service";
 import { SessionCryptoService } from "./session-crypto.service";
-import { LOGIN_COOKIE } from "../../common/auth/session.constants";
 
 function jwt(payload: Record<string, unknown>): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -21,11 +23,30 @@ const config = {
     })[key] ?? fallback,
 } as unknown as ConfigService;
 
+function userRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "user-1",
+    keycloakSub: "sub-1",
+    username: "amal",
+    name: "أمل",
+    nameEn: "Amal",
+    email: "amal@edas.test",
+    role: UserRole.ARCHIVIST,
+    status: UserStatus.ACTIVE,
+    departmentId: "dept-1",
+    sectionId: "sec-1",
+    jobTitle: "أرشيفية",
+    jobTitleEn: "Archivist",
+    phone: "0500000000",
+    ...overrides,
+  };
+}
+
 function buildService() {
   const prisma = {
     user: {
       findUnique: vi.fn().mockResolvedValue(null),
-      update: vi.fn(),
+      update: vi.fn().mockResolvedValue(userRecord()),
       create: vi.fn().mockResolvedValue({ id: "user-1", departmentId: "dept-1" }),
     },
   };
@@ -43,12 +64,38 @@ function buildService() {
   return { service, prisma, crypto, oidc, sessions, audit };
 }
 
+async function startLogin(service: AuthService, crypto: SessionCryptoService, returnTo = "/documents") {
+  const pending = await service.beginLogin(returnTo, "http://api.test");
+  const state = crypto.open<{ state: string }>(pending.pendingCookie)?.state;
+  return { pending, state };
+}
+
 describe("sanitizeReturnTo", () => {
   it("keeps same-origin paths and rejects open redirects", () => {
     expect(sanitizeReturnTo("/documents")).toBe("/documents");
     expect(sanitizeReturnTo("//evil.example")).toBe("/dashboard");
     expect(sanitizeReturnTo("https://evil.example")).toBe("/dashboard");
     expect(sanitizeReturnTo(undefined)).toBe("/dashboard");
+  });
+});
+
+describe("AuthService configuration", () => {
+  it("exposes the provider settings with their defaults", () => {
+    const { service } = buildService();
+
+    expect(service.oidcConfig()).toEqual({
+      issuer: "http://kc.test/realms/edas",
+      clientId: "edas-web",
+      audience: "edas-api",
+      scopes: "openid profile email",
+    });
+  });
+
+  it("publishes both cookie lifetimes the controller needs", () => {
+    const { service } = buildService();
+
+    expect(service.pendingLoginTtlSeconds).toBe(600);
+    expect(service.sessionTtlSeconds).toBe(28800);
   });
 });
 
@@ -81,8 +128,7 @@ describe("AuthService.beginLogin", () => {
 describe("AuthService.completeLogin", () => {
   it("exchanges the code and redirects back into the SPA", async () => {
     const { service, crypto, oidc, sessions, prisma, audit } = buildService();
-    const pending = await service.beginLogin("/documents", "http://api.test");
-    const state = crypto.open<{ state: string }>(pending.pendingCookie)?.state;
+    const { pending, state } = await startLogin(service, crypto);
     oidc.exchangeCode.mockResolvedValue({ access_token: jwt({ sub: "sub-1" }), expires_in: 900, token_type: "Bearer" });
     sessions.create.mockResolvedValue({ id: "session-1" });
 
@@ -98,9 +144,7 @@ describe("AuthService.completeLogin", () => {
       codeVerifier: "verifier-1",
       redirectUri: "http://api.test/api/v1/auth/callback",
     });
-    expect(prisma.user.create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ keycloakSub: "sub-1" }) }),
-    );
+    expect(prisma.user.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ keycloakSub: "sub-1" }) }));
     expect((prisma.user.create as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0]).toBeLessThan(
       (sessions.create as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0],
     );
@@ -115,9 +159,34 @@ describe("AuthService.completeLogin", () => {
     );
   });
 
+  it("reuses the account row on a later login and stamps the visit", async () => {
+    const { service, crypto, oidc, sessions, prisma, audit } = buildService();
+    const { pending, state } = await startLogin(service, crypto);
+    oidc.exchangeCode.mockResolvedValue({ access_token: jwt({ sub: "sub-1" }) });
+    prisma.user.findUnique.mockResolvedValue({ id: "user-1", departmentId: "dept-1" });
+    sessions.create.mockResolvedValue({ id: "session-2" });
+
+    await service.completeLogin({
+      code: "code-1",
+      state,
+      cookieHeader: `${LOGIN_COOKIE}=${pending.pendingCookie}`,
+      context: {},
+    });
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { keycloakSub: "sub-1" },
+      select: { id: true, departmentId: true },
+    });
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: "user-1" }, data: { lastLoginAt: expect.any(Date) } });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "auth.login", entityId: "user-1", ip: null, userAgent: null }),
+    );
+  });
+
   it("rejects a mismatched state", async () => {
-    const { service } = buildService();
-    const pending = await service.beginLogin("/documents", "http://api.test");
+    const { service, crypto } = buildService();
+    const { pending } = await startLogin(service, crypto);
 
     await expect(
       service.completeLogin({
@@ -137,13 +206,110 @@ describe("AuthService.completeLogin", () => {
     );
   });
 
+  it("rejects a callback that carries a valid state but no code", async () => {
+    const { service, crypto, oidc } = buildService();
+    const { pending, state } = await startLogin(service, crypto);
+
+    await expect(
+      service.completeLogin({
+        state,
+        cookieHeader: `${LOGIN_COOKIE}=${pending.pendingCookie}`,
+        context: {},
+      }),
+    ).rejects.toThrow(/Missing authorization code/);
+    expect(oidc.exchangeCode).not.toHaveBeenCalled();
+  });
+
   it("surfaces the provider error instead of calling the token endpoint", async () => {
     const { service, oidc } = buildService();
 
     await expect(
       service.completeLogin({ error: "access_denied", errorDescription: "Denied", cookieHeader: undefined, context: {} }),
     ).rejects.toThrow(/Denied/);
+    await expect(service.completeLogin({ error: "access_denied", cookieHeader: undefined, context: {} })).rejects.toThrow(/access_denied/);
     expect(oidc.exchangeCode).not.toHaveBeenCalled();
+  });
+});
+
+describe("AuthService.profile", () => {
+  const principal: Principal = {
+    sub: "sub-1",
+    username: "amal",
+    roles: [UserRole.ARCHIVIST],
+    identityRoles: [UserRole.ARCHIVIST],
+  };
+
+  it("returns the stored account with the login stamp and without provisioning", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findUnique.mockResolvedValue(userRecord());
+
+    const profile = await service.profile(principal);
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { keycloakSub: "sub-1" } });
+    expect(prisma.user.update).toHaveBeenCalledWith({ where: { id: "user-1" }, data: { lastLoginAt: expect.any(Date) } });
+    expect(profile).toEqual({
+      id: "user-1",
+      username: "amal",
+      name: "أمل",
+      nameEn: "Amal",
+      email: "amal@edas.test",
+      role: UserRole.ARCHIVIST,
+      status: UserStatus.ACTIVE,
+      departmentId: "dept-1",
+      sectionId: "sec-1",
+      jobTitle: "أرشيفية",
+      jobTitleEn: "Archivist",
+      phone: "0500000000",
+      isNew: false,
+    });
+  });
+
+  it("provisions a first-time account and reports it as new", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    prisma.user.create.mockResolvedValue(userRecord());
+    const newcomer = { ...principal, name: "أمل", email: "amal@edas.test" };
+
+    const profile = await service.profile(newcomer);
+
+    expect(prisma.user.create).toHaveBeenCalledWith({
+      data: {
+        keycloakSub: "sub-1",
+        username: "amal",
+        name: "أمل",
+        email: "amal@edas.test",
+        role: UserRole.ARCHIVIST,
+      },
+    });
+    expect(profile).toMatchObject({ id: "user-1", isNew: true });
+  });
+
+  it("falls back to the username and the local mailbox when the provider sends neither", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+
+    await service.profile(principal);
+
+    expect(prisma.user.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ name: "amal", email: "amal@edas.local" }),
+      }),
+    );
+  });
+
+  it("re-links an existing account when the provider subject changed", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(userRecord({ keycloakSub: "old-sub" }));
+    prisma.user.update.mockResolvedValue(userRecord());
+
+    const profile = await service.profile(principal);
+
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: "user-1" },
+      data: { keycloakSub: "sub-1", lastLoginAt: expect.any(Date) },
+    });
+    expect(prisma.user.create).not.toHaveBeenCalled();
+    expect(profile).toMatchObject({ id: "user-1", isNew: false });
   });
 });
 
@@ -176,6 +342,17 @@ describe("AuthService.endSession", () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: "auth.logout", entityId: "user-1", actorId: "user-1", departmentId: "dept-1" }),
     );
+  });
+
+  it("skips the audit when the session points at an account that no longer exists", async () => {
+    const { service, sessions, prisma, audit } = buildService();
+    sessions.logout.mockResolvedValue({ idToken: null, keycloakSub: "sub-gone" });
+
+    const result = await service.endSession("edas_session=session-1");
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { keycloakSub: "sub-gone" }, select: expect.anything() });
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(result.logoutUrl).toBe("http://kc.test/logout");
   });
 
   it("still builds a logout url when no session cookie is present", async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { LegalHoldsService } from "./legal-holds.service";
 
 const FINANCE = { id: "user-mgr", departmentId: "dept-finance", role: "DEPT_MANAGER" };
@@ -218,5 +218,193 @@ describe("LegalHoldsService department scope", () => {
     prisma.legalHold.findUnique.mockResolvedValue(holdFixture({ status: "RELEASED" }));
 
     await expect(service.release({ sub: "user-mgr" } as never, "hold-1")).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe("LegalHoldsService writes", () => {
+  const DOCUMENT_SELECT = { id: true, departmentId: true, folderId: true, ownerId: true };
+
+  it("places a hold inside one transaction with the lock, the link rows and an audit event", async () => {
+    const { service, prisma, audit } = buildService(FINANCE);
+
+    const dto = await service.create(
+      { sub: "user-mgr" } as never,
+      { caseNo: "CASE-1", reason: "تحقيق", documentIds: ["doc-1", "doc-1"] } as never,
+    );
+
+    expect(prisma.document.findMany).toHaveBeenCalledWith({ where: { id: { in: ["doc-1"] } }, select: DOCUMENT_SELECT });
+    expect(prisma.$executeRaw).toHaveBeenCalledOnce();
+    expect(prisma.document.count).toHaveBeenCalledWith({ where: { id: { in: ["doc-1"] } } });
+    expect(prisma.legalHold.create).toHaveBeenCalledWith({
+      data: {
+        caseNo: "CASE-1",
+        reason: "تحقيق",
+        placedById: "user-mgr",
+        documents: { create: [{ documentId: "doc-1" }] },
+      },
+      include: expect.anything(),
+    });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "legal-hold.create",
+        entityType: "LegalHold",
+        entityId: "hold-1",
+        actorId: "user-mgr",
+        departmentId: "dept-finance",
+        detail: { caseNo: "CASE-1", documentIds: ["doc-1"] },
+      }),
+      expect.anything(),
+    );
+    expect(dto).toMatchObject({
+      id: "hold-1",
+      placedByName: "Manager",
+      releasedByName: null,
+      documents: [{ id: "doc-1", docNo: "DOC-1", addedAt: expect.any(Date) }],
+    });
+  });
+
+  it("accepts a case with no documents attached yet", async () => {
+    const { service, prisma } = buildService(FINANCE);
+    prisma.document.count.mockResolvedValue(0);
+
+    await service.create({ sub: "user-mgr" } as never, { caseNo: "CASE-3", reason: "r" } as never);
+
+    expect(prisma.document.findMany).not.toHaveBeenCalled();
+    expect(prisma.$executeRaw).not.toHaveBeenCalled();
+    expect(prisma.legalHold.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ documents: { create: [] } }) }),
+    );
+  });
+
+  it("refuses the case when a document disappeared before the write landed", async () => {
+    const { service, prisma } = buildService(FINANCE);
+    prisma.document.count.mockResolvedValue(0);
+
+    await expect(
+      service.create({ sub: "user-mgr" } as never, { caseNo: "CASE-4", reason: "r", documentIds: ["doc-1"] } as never),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    expect(prisma.legalHold.create).not.toHaveBeenCalled();
+  });
+
+  it("records a hold whose creator has no account id", async () => {
+    const { service, prisma, audit } = buildService({ id: "", departmentId: "dept-finance", role: "EMPLOYEE" });
+
+    await service.create({ sub: "ghost" } as never, { caseNo: "CASE-5", reason: "r", documentIds: ["doc-1"] } as never);
+
+    expect(prisma.legalHold.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ placedById: null }) }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ actorId: null }), expect.anything());
+  });
+
+  it("adds a document once and audits the addition", async () => {
+    const { service, prisma, audit } = buildService(FINANCE);
+    prisma.legalHoldDocument.findUnique.mockResolvedValue(null);
+
+    await expect(service.addDocument({ sub: "user-mgr" } as never, "hold-1", "doc-1")).resolves.toMatchObject({ id: "hold-1" });
+
+    expect(prisma.$executeRaw).toHaveBeenCalledOnce();
+    expect(prisma.legalHoldDocument.create).toHaveBeenCalledWith({ data: { holdId: "hold-1", documentId: "doc-1" } });
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "legal-hold.add-document",
+        entityId: "hold-1",
+        actorId: "user-mgr",
+        detail: { caseNo: "CASE-1", documentId: "doc-1" },
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("returns the hold unchanged when the document is already attached", async () => {
+    const { service, prisma, audit } = buildService(FINANCE);
+    prisma.legalHoldDocument.findUnique.mockResolvedValue({ holdId: "hold-1", documentId: "doc-1" });
+
+    await expect(service.addDocument({ sub: "user-mgr" } as never, "hold-1", "doc-1")).resolves.toMatchObject({ id: "hold-1" });
+    expect(prisma.legalHoldDocument.create).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it("reports a hold that disappears between the read and the lock", async () => {
+    const { service, prisma } = buildService(FINANCE);
+    prisma.legalHold.findUnique.mockResolvedValueOnce(holdFixture()).mockResolvedValueOnce(null as never);
+
+    await expect(service.addDocument({ sub: "user-mgr" } as never, "hold-1", "doc-1")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("refuses an addition to a hold released while waiting for the lock", async () => {
+    const { service, prisma } = buildService(FINANCE);
+    prisma.legalHold.findUnique.mockResolvedValueOnce(holdFixture()).mockResolvedValueOnce({ status: "RELEASED" } as never);
+
+    await expect(service.addDocument({ sub: "user-mgr" } as never, "hold-1", "doc-1")).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.legalHoldDocument.create).not.toHaveBeenCalled();
+  });
+
+  it("reports a link that another request removed first", async () => {
+    const { service, prisma } = buildService(FINANCE);
+    prisma.legalHoldDocument.deleteMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.removeDocument({ sub: "user-mgr" } as never, "hold-1", "doc-1")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("loses the release race without writing an audit event", async () => {
+    const { service, prisma, audit } = buildService(FINANCE);
+    prisma.legalHold.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.release({ sub: "user-mgr" } as never, "hold-1")).rejects.toBeInstanceOf(ConflictException);
+    expect(audit.record).not.toHaveBeenCalledWith(expect.objectContaining({ action: "legal-hold.release" }), expect.anything());
+  });
+
+  it("reports a hold deleted while it was being released", async () => {
+    const { service, prisma } = buildService(FINANCE);
+    prisma.legalHold.findUnique.mockResolvedValueOnce(holdFixture()).mockResolvedValueOnce(null as never);
+
+    await expect(service.release({ sub: "user-mgr" } as never, "hold-1")).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe("LegalHoldsService listing and reads", () => {
+  it("reports a missing hold instead of an empty body", async () => {
+    const { service, prisma } = buildService(FINANCE);
+    prisma.legalHold.findUnique.mockResolvedValue(null as never);
+
+    await expect(service.get({ sub: "user-mgr" } as never, "hold-404")).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it("pages a department list and maps a released hold", async () => {
+    const { service, prisma } = buildService(FINANCE);
+    prisma.$transaction.mockResolvedValueOnce([
+      [
+        holdFixture({
+          status: "RELEASED",
+          releasedById: "user-admin",
+          releasedBy: { id: "user-admin", name: "Admin" },
+          releasedAt: new Date("2026-11-02T00:00:00.000Z"),
+          documents: [],
+        }),
+      ],
+      9,
+    ]);
+
+    const result = await service.list({ sub: "user-mgr" } as never, { page: 3, pageSize: 10 } as never);
+
+    expect(prisma.legalHold.findMany).toHaveBeenCalledWith(expect.objectContaining({ skip: 20, take: 10 }));
+    expect(result.items[0]).toMatchObject({
+      status: "RELEASED",
+      releasedByName: "Admin",
+      releasedAt: new Date("2026-11-02T00:00:00.000Z"),
+      documents: [],
+    });
+    expect(result.meta).toEqual({ page: 3, pageSize: 10, total: 9 });
+  });
+
+  it("lists every hold for a global reader with the status filter applied", async () => {
+    const { service, prisma } = buildService(ADMIN);
+    prisma.$transaction.mockResolvedValueOnce([[holdFixture()], 1]);
+
+    const result = await service.list({ sub: "user-admin" } as never, { status: "ACTIVE" } as never);
+
+    expect(prisma.legalHold.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { status: "ACTIVE" }, skip: 0, take: 25, orderBy: { placedAt: "desc" } }),
+    );
+    expect(result.meta).toEqual({ page: 1, pageSize: 25, total: 1 });
   });
 });

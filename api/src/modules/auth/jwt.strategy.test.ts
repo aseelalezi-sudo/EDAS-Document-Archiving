@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { UnauthorizedException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import { JwtStrategy } from "./jwt.strategy";
 
 type StrategyLike = {
@@ -45,5 +46,37 @@ describe("JwtStrategy.validate", () => {
     await expect(
       instance.validate({ sub: "sub-3", preferred_username: "omar", realm_access: { roles: ["employee"] } }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe("JwtStrategy construction", () => {
+  const config = {
+    getOrThrow: (key: string) => ({ KEYCLOAK_ISSUER: "http://kc.test/realms/edas/", KEYCLOAK_AUDIENCE: "edas-api" })[key],
+    get: (key: string, fallback?: string) => ({ KEYCLOAK_CLIENT_ID: "edas-web" })[key] ?? fallback,
+  } as unknown as ConfigService;
+
+  it("builds against the issuer, the audience and the default client id", async () => {
+    const prisma = { user: { findUnique: vi.fn().mockResolvedValue({ status: "ACTIVE", role: "ARCHIVIST" }) } };
+    const instance = new JwtStrategy(config, prisma as never);
+
+    const principal = await instance.validate({
+      sub: "sub-1",
+      preferred_username: "sara",
+      resource_access: { "edas-web": { roles: ["archivist", "auditor"] } },
+    });
+
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { keycloakSub: "sub-1" },
+      select: { status: true, role: true },
+    });
+    expect(principal.roles).toEqual(["ARCHIVIST"]);
+    expect(principal.identityRoles).toEqual(["ARCHIVIST", "AUDITOR"]);
+    expect(principal.username).toBe("sara");
+  });
+
+  it("fails fast when the issuer or the audience is missing", () => {
+    const prisma = { user: { findUnique: vi.fn() } };
+
+    expect(() => new JwtStrategy({ getOrThrow: () => undefined, get: () => undefined } as never, prisma as never)).toThrow();
   });
 });
