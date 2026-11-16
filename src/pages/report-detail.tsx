@@ -120,7 +120,7 @@ export function ReportDetail() {
   }
 
   const name = lang === "en" ? tpl.nameEn : tpl.name;
-  const runnable = isReportRunnable(tpl.id, apiMode);
+  const runnable = apiMode && isReportRunnable(tpl.id, apiMode);
   const departments = deptStore.items;
   const deptDocs = departments
     .map((department) => ({
