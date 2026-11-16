@@ -22,12 +22,13 @@ export default defineConfig({
     include: ["src/**/*.{test,spec}.{ts,tsx}", "packages/**/*.{test,spec}.ts"],
     css: false,
     testTimeout: 10_000,
+    maxWorkers: 8,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],
       include: ["src/**/*.{ts,tsx}", "packages/shared/**/*.ts"],
       exclude: ["src/**/*.test.{ts,tsx}", "src/test/**", "src/data/**", "src/**/*.d.ts", "packages/shared/**/*.test.ts"],
-      thresholds: { statements: 50, branches: 45, functions: 46, lines: 51 },
+      thresholds: { statements: 71, branches: 65, functions: 67, lines: 73 },
     },
   },
 });
