@@ -111,61 +111,67 @@ export function DxfViewer({ url, labels }: DxfViewerProps) {
     setLayers(Array.from(viewer.GetLayers()));
   }, []);
 
-  if (status === "error") {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
-        <AlertTriangle className="h-8 w-8 text-amber-500" />
-        <p className="max-w-md text-sm text-ink-600 dark:text-ink-300">{labels.error}</p>
-        <p className="max-w-md break-words text-xs text-ink-400">{error}</p>
-        <Button size="sm" variant="outline" icon={<RefreshCw className="h-4 w-4" />} onClick={() => setReloadKey((value) => value + 1)}>
-          {labels.retry}
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-1 border-b border-ink-100 bg-white/60 px-2 py-1.5 dark:border-ink-800 dark:bg-ink-900/40">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8"
-          aria-label={labels.zoomOut}
-          title={labels.zoomOut}
-          onClick={() => zoom(0.8)}
-        >
-          <Minus className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={labels.zoomIn} title={labels.zoomIn} onClick={() => zoom(1.25)}>
-          <Plus className="h-4 w-4" />
-        </Button>
-        <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={labels.fit} title={labels.fit} onClick={fit}>
-          <Maximize2 className="h-4 w-4" />
-        </Button>
-        <div className="mx-1 h-5 w-px bg-ink-200 dark:bg-ink-700" />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 px-2"
-          aria-pressed={showLayers}
-          onClick={() => setShowLayers((value) => !value)}
-        >
-          <Layers className="h-4 w-4" />
-          <span className="text-xs">{labels.layers}</span>
-          {layers.length > 0 && <span className="text-[11px] text-ink-400">({layers.length})</span>}
-        </Button>
-        {status === "loading" && (
-          <span className="ms-auto flex items-center gap-1.5 pe-1 text-[11px] text-ink-400">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            {phase === "fetch" ? labels.loading : labels.parsing}
-            {phase === "fetch" && progress > 0 ? ` ${progress}%` : ""}
-          </span>
-        )}
-      </div>
+      {status !== "error" && (
+        <div className="flex flex-wrap items-center gap-1 border-b border-ink-100 bg-white/60 px-2 py-1.5 dark:border-ink-800 dark:bg-ink-900/40">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label={labels.zoomOut}
+            title={labels.zoomOut}
+            onClick={() => zoom(0.8)}
+          >
+            <Minus className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            aria-label={labels.zoomIn}
+            title={labels.zoomIn}
+            onClick={() => zoom(1.25)}
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" className="h-8 w-8" aria-label={labels.fit} title={labels.fit} onClick={fit}>
+            <Maximize2 className="h-4 w-4" />
+          </Button>
+          <div className="mx-1 h-5 w-px bg-ink-200 dark:bg-ink-700" />
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1.5 px-2"
+            aria-pressed={showLayers}
+            onClick={() => setShowLayers((value) => !value)}
+          >
+            <Layers className="h-4 w-4" />
+            <span className="text-xs">{labels.layers}</span>
+            {layers.length > 0 && <span className="text-[11px] text-ink-400">({layers.length})</span>}
+          </Button>
+          {status === "loading" && (
+            <span className="ms-auto flex items-center gap-1.5 pe-1 text-[11px] text-ink-400">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              {phase === "fetch" ? labels.loading : labels.parsing}
+              {phase === "fetch" && progress > 0 ? ` ${progress}%` : ""}
+            </span>
+          )}
+        </div>
+      )}
       <div className="relative min-h-0 flex-1">
         <div ref={containerRef} className="h-full w-full" data-testid="dxf-canvas" />
-        {showLayers && (
+        {status === "error" && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-white/95 p-6 text-center dark:bg-ink-900/95">
+            <AlertTriangle className="h-8 w-8 text-amber-500" />
+            <p className="max-w-md text-sm text-ink-600 dark:text-ink-300">{labels.error}</p>
+            <p className="max-w-md break-words text-xs text-ink-400">{error}</p>
+            <Button size="sm" variant="outline" icon={<RefreshCw className="h-4 w-4" />} onClick={() => setReloadKey((value) => value + 1)}>
+              {labels.retry}
+            </Button>
+          </div>
+        )}
+        {status !== "error" && showLayers && (
           <div className="absolute inset-y-2 end-2 z-10 w-56 overflow-y-auto rounded-xl border border-ink-200 bg-white/95 p-2 shadow-lg backdrop-blur dark:border-ink-700 dark:bg-ink-900/95">
             <p className="mb-1 px-1 text-[11px] font-semibold text-ink-500">{labels.layers}</p>
             {layers.length === 0 ? (
