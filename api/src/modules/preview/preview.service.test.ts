@@ -500,7 +500,7 @@ describe("PreviewService conversions", () => {
 
     await expect(service.getPreview(PRINCIPAL as never, "file-1")).resolves.toMatchObject({ status: "converting" });
     await vi.waitFor(() => expect(converter.convertOfficeToPdf).toHaveBeenCalledTimes(2));
-    expect(storage.put).toHaveBeenCalledTimes(2);
+    await vi.waitFor(() => expect(storage.put).toHaveBeenCalledTimes(2));
   });
 
   it("logs a job that crashes before it can start converting", async () => {
