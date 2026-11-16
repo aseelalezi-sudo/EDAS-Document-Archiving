@@ -72,7 +72,7 @@ export function PolicyEditor() {
         ...prev,
         name: policy.name,
         scope,
-        scopeTarget: scope === "category" ? policy.category || policy.target : "",
+        scopeTarget: scope === "category" ? policy.category || policy.target : scope === "department" ? (policy.departmentId ?? "") : "",
         retentionNum: amount,
         retentionUnit: useYears ? "years" : "months",
         action:
