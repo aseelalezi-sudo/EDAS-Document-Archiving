@@ -139,6 +139,7 @@ function renderPage(docId = "doc-1") {
     <MemoryRouter initialEntries={[`/documents/${docId}`]}>
       <Routes>
         <Route path="/documents/:id" element={<DocumentDetails />} />
+        <Route path="/documents" element={<div>documents-list</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -318,5 +319,170 @@ describe("document details", () => {
     renderPage();
     fireEvent.click(screen.getByRole("tab", { name: "الصلاحيات" }));
     expect(screen.getByText("لا يوجد مجلد مرتبط")).toBeInTheDocument();
+  });
+
+  it("validates and places a legal hold from the toolbar", async () => {
+    const store = mockStore({ addHold: vi.fn().mockResolvedValue(true) });
+    const app = mockApp();
+    const today = new Date().toISOString().slice(0, 10);
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "حجز قانوني" }));
+    const dialog = screen.getByRole("dialog", { name: "حجز قانوني" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد" }));
+    await waitFor(() => expect(app.toast).toHaveBeenCalledWith({ type: "error", title: "السبب مطلوب" }));
+    expect(store.addHold).not.toHaveBeenCalled();
+
+    fireEvent.change(within(dialog).getByPlaceholderText("سبب الحجز القانوني"), { target: { value: "نزاع تعاقدي" } });
+    fireEvent.change(within(dialog).getByPlaceholderText("1447/ق/302"), { target: { value: "CASE-9" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد" }));
+
+    await waitFor(() =>
+      expect(store.addHold).toHaveBeenCalledWith({
+        ref: "CASE-9",
+        reason: "نزاع تعاقدي",
+        caseRef: "CASE-9",
+        placedBy: "مدير النظام",
+        placedAt: today,
+        items: 1,
+        documentIds: ["doc-1"],
+      }),
+    );
+    await waitFor(() =>
+      expect(app.toast).toHaveBeenCalledWith({
+        type: "warning",
+        title: "تم وضع الحجز القانوني",
+        message: "EDAS-2026001 — محمية من الإتلاف",
+      }),
+    );
+    expect(screen.queryByRole("dialog", { name: "حجز قانوني" })).toBeNull();
+  });
+
+  it("schedules the retention from the active policies only", async () => {
+    const store = mockStore({
+      scheduleRetention: vi.fn().mockResolvedValue(true),
+      policies: {
+        items: [
+          { id: "p1", name: "سياسة 5 سنوات", retentionMonths: 60, status: "active" },
+          { id: "p2", name: "سياسة قديمة", retentionMonths: 12, status: "inactive" },
+        ],
+      },
+    });
+    const app = mockApp();
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "جدولة الاحتفاظ" }));
+    const dialog = screen.getByRole("dialog", { name: "جدولة الاحتفاظ" });
+    const select = within(dialog).getByRole("combobox");
+    expect(within(select).getByRole("option", { name: /سياسة 5 سنوات/ })).toBeInTheDocument();
+    expect(within(select).queryByRole("option", { name: /سياسة قديمة/ })).toBeNull();
+    expect(within(dialog).getByRole("button", { name: "تأكيد" })).toBeDisabled();
+
+    fireEvent.change(select, { target: { value: "p1" } });
+    expect(within(dialog).getByText("2031-01-01")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "تأكيد" }));
+
+    await waitFor(() => expect(store.scheduleRetention).toHaveBeenCalledWith("doc-1", "p1"));
+    await waitFor(() =>
+      expect(app.toast).toHaveBeenCalledWith({ type: "success", title: "تمت جدولة الاحتفاظ", message: "EDAS-2026001 — سياسة 5 سنوات" }),
+    );
+    expect(screen.queryByRole("dialog", { name: "جدولة الاحتفاظ" })).toBeNull();
+  });
+
+  it("disables retention scheduling and hides declaration for other roles", () => {
+    mockStore({ can: vi.fn(() => true) });
+    mockApp({ role: "employee" });
+
+    renderPage();
+
+    expect(screen.getByRole("button", { name: "جدولة الاحتفاظ" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "إعلان كسجل" })).toBeNull();
+  });
+
+  it("uploads a new version and sends the document for approval", async () => {
+    const store = mockStore();
+    const app = mockApp();
+
+    renderPage();
+
+    const file = new File(["%PDF"], "v2.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("رفع إصدار جديد"), { target: { files: [file] } });
+    await waitFor(() => expect(store.uploadNewVersion).toHaveBeenCalledWith("doc-1", "مدير النظام", file));
+    await waitFor(() =>
+      expect(app.toast).toHaveBeenCalledWith({ type: "success", title: "تم رفع v2.pdf", message: "أُضيف الإصدار الجديد للسجل" }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "إرسال للموافقة" }));
+    await waitFor(() => expect(app.toast).toHaveBeenCalledWith({ type: "success", title: "إرسال للموافقة", message: "بانتظار المعتمدين" }));
+  });
+
+  it("keeps an uploaded version silent when the store rejects it", async () => {
+    const store = mockStore({ uploadNewVersion: vi.fn().mockResolvedValue(false) });
+    const app = mockApp();
+
+    renderPage();
+
+    const file = new File(["%PDF"], "v3.pdf", { type: "application/pdf" });
+    fireEvent.change(screen.getByLabelText("رفع إصدار جديد"), { target: { files: [file] } });
+    await waitFor(() => expect(store.uploadNewVersion).toHaveBeenCalled());
+    expect(app.toast).not.toHaveBeenCalled();
+  });
+
+  it("shows signed and declared badges and locks the document", () => {
+    mockStore({
+      docs: [doc({ signatureStatus: "signed", signedBy: "أمل السبيعي", declaredRecord: true, tags: [], retentionEnd: "" })],
+    });
+    mockApp();
+
+    renderPage();
+
+    expect(screen.getByText("موقّعة — أمل السبيعي")).toBeInTheDocument();
+    expect(screen.getByText("سجل رسمي")).toBeInTheDocument();
+    expect(screen.queryByText("بانتظار التوقيع")).toBeNull();
+    expect(screen.queryByRole("button", { name: "طلب توقيع" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "توقيع" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "إعلان كسجل" })).toBeNull();
+    expect(screen.getByRole("button", { name: "حذف" })).toBeDisabled();
+    expect(screen.getByText("غير محددة")).toBeInTheDocument();
+    expect(screen.getByText("لا توجد وسوم")).toBeInTheDocument();
+  });
+
+  it("reports the trash result only when the deletion succeeds", () => {
+    const store = mockStore();
+    const app = mockApp();
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "حذف" }));
+    fireEvent.click(screen.getByRole("button", { name: "نقل إلى السلة" }));
+    const done = store.deleteDocs.mock.calls[0][1] as (ok: boolean) => void;
+
+    act(() => done(false));
+    expect(app.toast).not.toHaveBeenCalled();
+    expect(screen.queryByText("documents-list")).toBeNull();
+
+    act(() => done(true));
+    expect(app.toast).toHaveBeenCalledWith({ type: "error", title: "نقل إلى السلة" });
+    expect(screen.getByText("documents-list")).toBeInTheDocument();
+  });
+
+  it("renders the English toolbar and header", () => {
+    mockStore({ docs: [doc({ signatureStatus: "none" })] });
+    mockApp({ t: translator("en"), lang: "en" });
+
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "Supply contract" })).toBeInTheDocument();
+    expect(screen.getByText("Version 1.0")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Download" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Legal hold" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Schedule retention" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Request signature" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Declare record" })).toBeInTheDocument();
   });
 });

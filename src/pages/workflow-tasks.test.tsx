@@ -13,6 +13,7 @@ vi.mock("../store-docs", () => ({ useDocsStore: mocks.docs }));
 import { MyTasks } from "./workflow-tasks";
 
 const AR = translations.ar as Record<string, string>;
+const EN = translations.en as Record<string, string>;
 
 function t(key: string) {
   return AR[key] ?? key;
@@ -73,8 +74,9 @@ function mockStore(overrides: Record<string, unknown> = {}) {
   return store;
 }
 
-function mockApp() {
-  const app = { t, lang: "ar", toast: vi.fn() };
+function mockApp(lang: "ar" | "en" = "ar") {
+  const dict = lang === "en" ? EN : AR;
+  const app = { t: (key: string) => dict[key] ?? key, lang, toast: vi.fn() };
   mocks.app.mockReturnValue(app);
   return app;
 }
@@ -84,6 +86,9 @@ function renderPage() {
     <MemoryRouter initialEntries={["/workflow/my-tasks"]}>
       <Routes>
         <Route path="/workflow/my-tasks" element={<MyTasks />} />
+        <Route path="/documents/:id" element={<div data-testid="document-route" />} />
+        <Route path="/documents/:id/preview" element={<div data-testid="preview-route" />} />
+        <Route path="/workflow/:id" element={<div data-testid="process-route" />} />
       </Routes>
     </MemoryRouter>,
   );
@@ -204,5 +209,164 @@ describe("my tasks page", () => {
 
     await waitFor(() => expect(store.requestChanges).toHaveBeenCalledWith("task-1", "حدّث الميزانية"));
     await waitFor(() => expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ title: "طلب تعديلات" })));
+  });
+
+  it("filters overdue and reassigned tasks and badges the reassignment", () => {
+    mockStore({
+      tasks: [
+        task(),
+        task({ id: "task-2", docTitle: "تقرير متأخر", slaStatus: "breached" }),
+        task({ id: "task-3", docTitle: "محضر معاد", status: "reassigned", slaStatus: "ontrack" }),
+      ],
+    });
+    mockApp();
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole("tab", { name: /المتأخرة/ }));
+    expect(screen.getByText("تقرير متأخر")).toBeInTheDocument();
+    expect(screen.queryByText("عقد التوريد")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: /المعاد تعيينها/ }));
+    expect(screen.getByText("محضر معاد")).toBeInTheDocument();
+    expect(screen.getByText("معاد تعيينها")).toBeInTheDocument();
+  });
+
+  it("reassigns a task to an active user only", async () => {
+    const store = mockStore({
+      tasks: [task()],
+      users: {
+        items: [
+          { id: "u1", name: "سارة القحطاني", status: "active", role: "dept_manager" },
+          { id: "u2", name: "معطل", status: "inactive", role: "employee" },
+        ],
+      },
+    });
+    const app = mockApp();
+
+    renderPage();
+
+    fireEvent.click(screen.getAllByRole("button", { name: t("g.rowOptions") })[0]);
+    fireEvent.click(screen.getByRole("menuitem", { name: t("doc.reassign") }));
+    const dialog = screen.getByRole("dialog", { name: t("doc.reassign") });
+    expect(within(dialog).getByText("سارة القحطاني")).toBeInTheDocument();
+    expect(within(dialog).queryByText("معطل")).toBeNull();
+
+    const confirm = within(dialog).getByRole("button", { name: t("doc.reassign") });
+    expect(confirm).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /سارة القحطاني/ }));
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(store.reassignTask).toHaveBeenCalledWith("task-1", "سارة القحطاني"));
+    await waitFor(() =>
+      expect(app.toast).toHaveBeenCalledWith({
+        type: "info",
+        title: t("doc.reassign"),
+        message: "عقد التوريد → سارة القحطاني",
+      }),
+    );
+    expect(screen.queryByRole("dialog", { name: t("doc.reassign") })).toBeNull();
+  });
+
+  it("explains when there is no active assignee", () => {
+    mockStore({ tasks: [task()], users: { items: [{ id: "u2", name: "معطل", status: "inactive", role: "employee" }] } });
+    mockApp();
+
+    renderPage();
+
+    fireEvent.click(screen.getAllByRole("button", { name: t("g.rowOptions") })[0]);
+    fireEvent.click(screen.getByRole("menuitem", { name: t("doc.reassign") }));
+    expect(screen.getByText("لا يوجد مستخدمون نشطون للإسناد.")).toBeInTheDocument();
+  });
+
+  it("rejects a task from the quick action after a written reason", async () => {
+    const store = mockStore({ tasks: [task()] });
+    const app = mockApp();
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: t("doc.reject") }));
+    const dialog = screen.getByRole("dialog", { name: t("doc.reject") });
+    const confirm = within(dialog).getByRole("button", { name: t("doc.reject") });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.change(within(dialog).getByPlaceholderText(t("wf.rejectPlaceholder")), { target: { value: "بيانات ناقصة" } });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(store.rejectTask).toHaveBeenCalledWith("task-1", "بيانات ناقصة"));
+    await waitFor(() => expect(app.toast).toHaveBeenCalledWith({ type: "info", title: t("doc.reject"), message: "عقد التوريد" }));
+  });
+
+  it("navigates from the review panel to the document and the process", () => {
+    mockStore({ tasks: [task()] });
+    mockApp();
+
+    const view = renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "عقد التوريد" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "مراجعة واعتماد" })).getByRole("button", { name: "فتح الوثيقة" }));
+    expect(screen.getByTestId("preview-route")).toBeInTheDocument();
+
+    view.unmount();
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "عقد التوريد" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "مراجعة واعتماد" })).getByRole("button", { name: "تفاصيل العملية" }));
+    expect(screen.getByTestId("process-route")).toBeInTheDocument();
+  });
+
+  it("disables opening a task that has no linked document", () => {
+    mockStore({ tasks: [task({ docId: undefined })] });
+    mockApp();
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "عقد التوريد" }));
+    const dialog = screen.getByRole("dialog", { name: "مراجعة واعتماد" });
+    expect(within(dialog).getByRole("button", { name: "فتح الوثيقة" })).toBeDisabled();
+  });
+
+  it("reports partial failures when approving all tasks", async () => {
+    let calls = 0;
+    mockStore({
+      tasks: [task(), task({ id: "task-2", docTitle: "محضر اجتماع" })],
+      removeTask: vi.fn().mockImplementation(() => Promise.resolve(calls++ === 0)),
+    });
+    const app = mockApp();
+
+    renderPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "موافقة على الكل" }));
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "الموافقة على جميع المهام المسندة؟" })).getByRole("button", { name: "موافقة على الكل" }),
+    );
+
+    await waitFor(() =>
+      expect(app.toast).toHaveBeenCalledWith(expect.objectContaining({ type: "error", title: "تمت الموافقة على 1 من 2" })),
+    );
+  });
+
+  it("shows the approvals loading and empty states", () => {
+    mockStore({ approvalsReady: false });
+    mockApp();
+    const view = renderPage();
+    expect(screen.getByText("جاري التحميل…")).toBeInTheDocument();
+
+    view.unmount();
+    mockStore({ approvalsReady: true, pendingApprovals: [] });
+    renderPage();
+    expect(screen.getByText("لا توجد طلبات اعتماد بانتظار دورك حالياً.")).toBeInTheDocument();
+  });
+
+  it("renders the English task labels", () => {
+    mockStore({ tasks: [task()] });
+    mockApp("en");
+
+    renderPage();
+
+    expect(screen.getByRole("heading", { name: "My Tasks & Approvals" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Assigned/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Approval Chains" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(screen.getByText("High")).toBeInTheDocument();
+    expect(screen.getByText("Warning")).toBeInTheDocument();
   });
 });

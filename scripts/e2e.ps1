@@ -456,6 +456,11 @@ try {
   Assert ([int]$empEditBefore.StatusCode -eq 200) "employee EDIT should pass before the deny rule (got $($empEditBefore.StatusCode))"
   Log "rbac: employee EDIT before deny -> HTTP $($empEditBefore.StatusCode)"
 
+  $empAcl = Invoke-WebRequest -Method Put -Uri "$base/folders/$($rbacFolder.id)/acl" -Headers (AuthHeader $empTok) -ContentType 'application/json' -Body (@{ rules = @(@{ principalType = 'ROLE'; principalId = 'employee'; actions = @('VIEW', 'DELETE') }) } | ConvertTo-Json -Depth 5) -SkipHttpErrorCheck
+  Assert ([int]$empAcl.StatusCode -eq 403) "employee EDIT must not manage ACLs (got $($empAcl.StatusCode))"
+  Assert ((ConvertFrom-Json $empAcl.Content).error.message -match 'MANAGE_ACL') "employee ACL rejection should name MANAGE_ACL (got $((ConvertFrom-Json $empAcl.Content).error.message))"
+  Log "rbac: employee ACL write -> HTTP $($empAcl.StatusCode)"
+
   $denyBody = @{ rules = @(@{ principalType = 'USER'; principalId = $empMe.id; actions = @('EDIT'); effect = 'DENY' }) } | ConvertTo-Json -Depth 5
   $deniedRule = (Invoke-RestMethod -Method Put -Uri "$base/folders/$($rbacFolder.id)/acl" -Headers (AuthHeader $adminTok) -ContentType 'application/json' -Body $denyBody).data
   Assert ($deniedRule[0].effect -eq 'DENY') "folder rule should keep the DENY effect (got $($deniedRule[0].effect))"
