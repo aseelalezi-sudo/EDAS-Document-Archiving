@@ -30,24 +30,24 @@
 
 ### 🧭 نظرة عامة
 
-| المجال | ما هو مُنفَّذ فعليًا |
-| --- | --- |
-| **الوثائق** | إنشاء، تعديل، نسخ جديدة، نقل وأرشفة، حجز/إفراج (checkout/checkin)، حذف/استعادة/إتلاف نهائي، توقيع، إعلان سجل |
+| المجال                 | ما هو مُنفَّذ فعليًا                                                                                                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **الوثائق**            | إنشاء، تعديل، نسخ جديدة، نقل وأرشفة، حجز/إفراج (checkout/checkin)، حذف/استعادة/إتلاف نهائي، توقيع، إعلان سجل                                                    |
 | **التصنيف والصلاحيات** | شجرة مجلدات، قواعد ACL لكل مجلد (`USER` / `ROLE` / `DEPARTMENT` × `VIEW\|CREATE\|EDIT\|DELETE\|APPROVE\|EXPORT`)، نطاق القسم، مصفوفة أدوار في `packages/shared` |
-| **الاعتماد والاحتفاظ** | سلاسل اعتماد وقرارات، سياسات احتفاظ وبنودها وتنفيذ الإتلاف، حجز قانوني، مهام وإشعارات |
-| **البحث والتقارير** | بحث متقدّم، بحوث محفوظة، تقارير مجدولة وتشغيل يدوي وتصدير CSV وExcel وPDF عربي (RTL بخط أميري) |
-| **المعاينة والتنزيل** | معاينة داخلية لـ PDF والصور وOffice وDXF وDWG عبر الخادم، وتنزيل بروابط مؤقتة موقّعة — دون كشف MinIO |
-| **الهوية والتدقيق** | Keycloak (authorization code + PKCE) بجلسة `httpOnly` وCSRF، وسجل تدقيق متسلسل بـ hash لكل تعديل |
+| **الاعتماد والاحتفاظ** | سلاسل اعتماد وقرارات، سياسات احتفاظ وبنودها وتنفيذ الإتلاف، حجز قانوني، مهام وإشعارات                                                                           |
+| **البحث والتقارير**    | بحث متقدّم، بحوث محفوظة، تقارير مجدولة وتشغيل يدوي وتصدير CSV وExcel وPDF عربي (RTL بخط أميري)                                                                  |
+| **المعاينة والتنزيل**  | معاينة داخلية لـ PDF والصور وOffice وDXF وDWG عبر الخادم، وتنزيل بروابط مؤقتة موقّعة — دون كشف MinIO                                                            |
+| **الهوية والتدقيق**    | Keycloak (authorization code + PKCE) بجلسة `httpOnly` وCSRF، وسجل تدقيق متسلسل بـ hash لكل تعديل                                                                |
 
 ### 🧱 حزمة التقنيات
 
-| الطبقة | التقنيات |
-| --- | --- |
-| **الواجهة** | React 19 · TypeScript 5.9 · Vite 7 · Tailwind CSS 4 (RTL، فاتح/داكن) · React Router 7 (HashRouter) |
-| **المكوّنات والرسوم** | Recharts · lucide-react · pdfjs-dist · dxf-viewer |
-| **الاختبارات** | Vitest · Testing Library · jsdom · Playwright (اختبار دخان بمتصفح) |
-| **الخادم (`api/`)** | NestJS 11 · Prisma 6 · PostgreSQL · Keycloak (OIDC/JWKS) · MinIO (S3) |
-| **البناء** | حزمة إنتاج مقسّمة (vendor + تحميل كسول للمعاينات والمسارات)، وبناء ملف واحد عبر `vite-plugin-singlefile` للعرض دون اتصال |
+| الطبقة                | التقنيات                                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| **الواجهة**           | React 19 · TypeScript 5.9 · Vite 7 · Tailwind CSS 4 (RTL، فاتح/داكن) · React Router 7 (HashRouter)                       |
+| **المكوّنات والرسوم** | Recharts · lucide-react · pdfjs-dist · dxf-viewer                                                                        |
+| **الاختبارات**        | Vitest · Testing Library · jsdom · Playwright (اختبار دخان بمتصفح)                                                       |
+| **الخادم (`api/`)**   | NestJS 11 · Prisma 6 · PostgreSQL · Keycloak (OIDC/JWKS) · MinIO (S3)                                                    |
+| **البناء**            | حزمة إنتاج مقسّمة (vendor + تحميل كسول للمعاينات والمسارات)، وبناء ملف واحد عبر `vite-plugin-singlefile` للعرض دون اتصال |
 
 ### ⚡ البدء السريع
 
@@ -55,7 +55,7 @@
 
 ```bash
 npm install
-npm run dev:all   # يشغّل PostgreSQL + Keycloak + MinIO + API ثم الواجهة على http://localhost:5173
+npm run dev:all   # يشغّل PostgreSQL + Keycloak + MinIO + Redis + API ثم الواجهة على http://localhost:5173
 ```
 
 `npm run stack:down` يوقف حاويات الخادم، و`Ctrl+C` يوقف الواجهة.
@@ -67,7 +67,7 @@ npm run dev:all   # يشغّل PostgreSQL + Keycloak + MinIO + API ثم الوا
 npm install && npm run shared:build
 cd api && npm install && npx prisma generate
 
-# الحزمة المحلية كاملة (PostgreSQL + Keycloak + MinIO + API)
+# الحزمة المحلية كاملة (PostgreSQL + Keycloak + MinIO + Redis + API)
 docker compose up -d
 
 # أو تشغيل الـ API مباشرة (يحتاج Postgres وKeycloak يعملان)
@@ -89,11 +89,12 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 
 الواجهة تعمل في وضع النموذج المحلي حتى تُضبط متغيّرات `VITE_` التالية. انسخ [`.env.example`](.env.example) إلى `.env.local`:
 
-| المتغيّر | مثال | الغرض |
-| --- | --- | --- |
-| `VITE_API_URL` | `http://localhost:4000` | أصل الـ API (المسارات تحت `/api/v1`) |
-| `VITE_OIDC_ISSUER` | `http://localhost:8080/realms/edas` | الـ realm المستخدم لتسجيل الدخول |
-| `VITE_OIDC_CLIENT_ID` | `edas-web` | عميل PKCE عام من استيراد الـ realm |
+| المتغيّر              | مثال                                | الغرض                                                                                 |
+| --------------------- | ----------------------------------- | ------------------------------------------------------------------------------------- |
+| `VITE_API_URL`        | `http://localhost:4000`             | أصل الـ API (المسارات تحت `/api/v1`)                                                  |
+| `VITE_OIDC_ISSUER`    | `http://localhost:8080/realms/edas` | الـ realm المستخدم لتسجيل الدخول                                                      |
+| `VITE_OIDC_CLIENT_ID` | `edas-web`                          | عميل PKCE عام من استيراد الـ realm                                                    |
+| `VITE_REQUIRE_API`    | `true`                              | في بناء النشر: يُفشل البناء إذا غاب أي من المتغيّرات الثلاثة بدل شحن وضع العرض المحلي |
 
 عند الضبط يعرض `/login` زر Keycloak واحدًا يوجّه المتصفح إلى `/api/v1/auth/login`، ثم ينفّذ **الخادم** تبادل authorization code + PKCE في `/api/v1/auth/callback`، ويحفظ رموز OIDC في صفّ `UserSession`، ويسلّم الواجهة **كوكي جلسة `httpOnly`** (`edas_session`) وكوكي CSRF مقروءًا (`edas_csrf`) يجب إعادته في ترويسة `x-csrf-token` مع كل طلب معدِّل. الواجهة لا تخزّن أي رمز، وتستعيد الملف الشخصي من `/auth/me` عند الإقلاع، وتستدعي `/auth/logout` لإنهاء جلسة Keycloak. ويقوم `src/lib/role-bridge.ts` بمطابقة أدوار الـ API وإجراءات ACL على نموذج الأدوار والصلاحيات في الواجهة.
 
@@ -108,6 +109,10 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 - التحقق من رموز Keycloak (RS256 عبر JWKS) وتنفيذ RBAC على الخادم، لا في المتصفح.
 - فحص حالة الحساب في كل طلب، فالمستخدم المقفل أو المعطّل يُرفض حتى لو كان رمزه ما زال صالحًا.
 - مصفوفة الصلاحيات مصدرها الوحيد `packages/shared` (`ROLE_CAPABILITIES`، `isGlobalRole`، `USER_ROLES`) وتستهلكها الواجهة والـ API معًا.
+- استبدال قواعد ACL محصور في `SYSTEM_ADMIN` و`ARCHIVIST` عبر `canManageAcl` في `packages/shared`، فلا تكفي صلاحية `EDIT` وحدها لإدارة الصلاحيات.
+- نطاق المجلد (`PUBLIC` / `DEPARTMENT` / `SECTION` / `PRIVATE`) يُفرض على الخادم: `PUBLIC` متاح للمصادَقين، و`DEPARTMENT` لإدارة المجلد، و`SECTION` لقسم المستخدم (مع `Folder.sectionId`)، و`PRIVATE` لمالكه (`ownerId`) مع رجوع المجلدات القديمة بلا مالك إلى نطاق الإدارة.
+- الصلاحيات الفعلية = صلاحيات الدور ∩ نطاق المجلد ∩ قيود ACL؛ `DENY` يتقدّم دائمًا، و`ALLOW` لا يمنح إجراءً خارج سقف الدور. تغيير النطاق أو الوراثة يحتاج `MANAGE_SCOPE` (مدير النظام/الأرشيفي).
+- ناتج الإنتاج يُبنى مع سياسة CSP (`<meta>`) تقيّد السكربتات والاتصالات والموارد، وتُضاف أصل الـ API إلى `connect-src` تلقائيًا من `VITE_API_URL`.
 - كل عملية تعديل تكتب صفًّا في سجل تدقيق متسلسل بـ hash وغير قابل للتعديل.
 - الـ realm في `infra/keycloak/realm-edas.json` للتطوير فقط (مستخدمو `admin`/`manager`/`employee` بكلمة مرور = اسم المستخدم، وعميل `edas-cli` يسمح بـ password grant للسكربتات و`npm run e2e`). عميل المتصفح `edas-web` لا يسمح بـ password grant ويقبل authorization code + PKCE فقط. الإنتاج يستورد realm خاصًا به ويبدّل كل بيانات الاعتماد — راجع [`infra/keycloak/README.md`](infra/keycloak/README.md).
 
@@ -122,23 +127,24 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 
 لا يكشف التنزيل MinIO أيضًا: `/files/:id/download` يعيد رابط تذكرة صالحًا 120 ثانية إلى `/files/:id/content?ticket=…` بدل رابط تخزين موقّع. فتح الرابط لا يحتاج ترويسة bearer (فيعمل التنزيل من المتصفح)، لكن النقطة تعيد فحص الوصول وصلاحية `EXPORT` لحظة التسليم وتدوّن أول تسليم، فلا تستمر صلاحية مسحوبة في استخدام رابط قديم. التذاكر مختومة بـ AES-256-GCM وبلا حالة، فلا حاجة إلى Redis أو صفوف قاعدة بيانات: اضبط `DOWNLOAD_TICKET_SECRET` (32 حرفًا فأكثر) بنفس القيمة على كل نسخة لتبقى الروابط صالحة عبر إعادة التشغيل والتوسّع؛ وبدونه تصلح داخل العملية المُصدِرة فقط. تقارير التصدير تستخدم الآلية نفسها عبر `/reports/runs/:id/download` و`/reports/runs/:id/content`.
 
-| المحتوى المكتشف | المعاينة | مفتاح التخزين المؤقت |
-| --- | --- | --- |
-| PDF، PNG/JPEG/GIF/WebP/BMP/TIFF/SVG، DXF، نص عادي | الأصل | — |
-| DOCX/XLSX/PPTX، DOC/XLS/PPT، ODT/ODS/ODP | LibreOffice إلى PDF | `previews/<fileId>/<sha256>.pdf` |
-| DWG (`AC10xx`) | ODA إلى DXF | `previews/<fileId>/<sha256>.dxf` |
+| المحتوى المكتشف                                   | المعاينة            | مفتاح التخزين المؤقت             |
+| ------------------------------------------------- | ------------------- | -------------------------------- |
+| PDF، PNG/JPEG/GIF/WebP/BMP/TIFF/SVG، DXF، نص عادي | الأصل               | —                                |
+| DOCX/XLSX/PPTX، DOC/XLS/PPT، ODT/ODS/ODP          | LibreOffice إلى PDF | `previews/<fileId>/<sha256>.pdf` |
+| DWG (`AC10xx`)                                    | ODA إلى DXF         | `previews/<fileId>/<sha256>.dxf` |
 
-يُكتشف نوع المحتوى من البايتات السحرية، فملف مُعاد تسميته يُرفض بدل الوثوق بامتداده. تحويلات Office/DWG تجري خارج مسار الطلب عبر طابور في الذاكرة بحدّ تزامن ومهلة وسقوف لحجم المصدر والناتج ومجلدات مؤقتة معزولة تُحذف دائمًا وبيئة مصغّرة تُبعد أسرار قاعدة البيانات وKeycloak وMinIO عن عملية التحويل؛ وتستعلم الصفحة حالة المعاينة حتى تجهز النسخة المخزّنة. المهام تعيش داخل عملية API واحدة: شغّل نسخة واحدة أو انقل الطابور إلى Redis/BullMQ عند التوسّع. تُحذف المعاينات المخزّنة عند إتلاف الملف، ويمكن للمشرف إزالة القديم عبر `POST /api/v1/preview/cache/cleanup` (`{ "olderThanDays": 30 }`)، ويعرض `GET /api/v1/preview/capabilities` المحوّلات المكتشفة.
+يُكتشف نوع المحتوى من البايتات السحرية، فملف مُعاد تسميته يُرفض بدل الوثوق بامتداده. تحويلات Office/DWG تجري خارج مسار الطلب عبر طابور معاينة بحدّ تزامن ومهلة وسقوف لحجم المصدر والناتج ومجلدات مؤقتة معزولة تُحذف دائمًا وبيئة مصغّرة تُبعد أسرار قاعدة البيانات وKeycloak وMinIO عن عملية التحويل؛ وتستعلم الصفحة حالة المعاينة حتى تجهز النسخة المخزّنة. عند ضبط `REDIS_URL` يكون الطابور عبر Redis/BullMQ (3 محاولات بتراجع أسّي، والوظائف الفاشلة محفوظة)؛ وبدونه يبقى داخل عملية API واحدة. تُحذف المعاينات المخزّنة عند إتلاف الملف، ويمكن للمشرف إزالة القديم عبر `POST /api/v1/preview/cache/cleanup` (`{ "olderThanDays": 30 }`)، ويعرض `GET /api/v1/preview/capabilities` المحوّلات المكتشفة.
 
-| المتغيّر | الافتراضي | الغرض |
-| --- | --- | --- |
-| `PREVIEW_SOFFICE_PATH` | كشف تلقائي | مسار تنفيذي LibreOffice `soffice` |
-| `PREVIEW_ODA_PATH` | كشف تلقائي | مسار تنفيذي ODA `ODAFileConverter` |
-| `PREVIEW_MAX_SOURCE_BYTES` | 50 MiB | المصادر الأكبر للتنزيل فقط |
-| `PREVIEW_MAX_OUTPUT_BYTES` | 200 MiB | حدّ المخرَج المحوّل |
-| `PREVIEW_TIMEOUT_MS` | 120000 | مهلة كل تحويل |
-| `PREVIEW_CONCURRENCY` | 2 | تحويلات متوازية لكل عملية API |
-| `PREVIEW_CACHE_SCAN_LIMIT` | 5000 | كائنات يفحصها منفذ التنظيف |
+| المتغيّر                   | الافتراضي  | الغرض                                                              |
+| -------------------------- | ---------- | ------------------------------------------------------------------ |
+| `PREVIEW_SOFFICE_PATH`     | كشف تلقائي | مسار تنفيذي LibreOffice `soffice`                                  |
+| `PREVIEW_ODA_PATH`         | كشف تلقائي | مسار تنفيذي ODA `ODAFileConverter`                                 |
+| `PREVIEW_MAX_SOURCE_BYTES` | 50 MiB     | المصادر الأكبر للتنزيل فقط                                         |
+| `PREVIEW_MAX_OUTPUT_BYTES` | 200 MiB    | حدّ المخرَج المحوّل                                                |
+| `PREVIEW_TIMEOUT_MS`       | 120000     | مهلة كل تحويل                                                      |
+| `PREVIEW_CONCURRENCY`      | 2          | تحويلات متوازية لكل عملية API                                      |
+| `REDIS_URL`                | —          | يفعّل طابور BullMQ مشترك للمعاينة؛ بدونه يبقى الطابور داخل العملية |
+| `PREVIEW_CACHE_SCAN_LIMIT` | 5000       | كائنات يفحصها منفذ التنظيف                                         |
 
 على Ubuntu/Debian: `apt-get install libreoffice-writer libreoffice-calc libreoffice-impress fonts-noto-core fonts-noto-ui-core` ثم `PREVIEW_SOFFICE_PATH=/usr/bin/soffice` (أو اتركه للكشف التلقائي). ثبّت ODA File Converter منفصلًا واضبط `PREVIEW_ODA_PATH`؛ وتبقى معاينة DWG معطّلة برسالة واضحة حتى يتوفّر المحوّل. صورة الـ API المرفقة مبنية على Debian (`node:22-bookworm-slim`) وتضم LibreOffice والخطوط العربية، ويُضاف إليها ODA فقط لـ DWG. وODA يعمل على glibc فقط، أي Debian/Ubuntu لا Alpine.
 
@@ -149,29 +155,29 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 <details>
 <summary><b>جدول نقاط النهاية (اضغط للعرض)</b></summary>
 
-| المجال | نقاط النهاية |
-| --- | --- |
-| الصحة | `GET /health`، `GET /health/ready` (بلا بيئة) |
-| المراقبة | `GET /api/v1/metrics` (Prometheus؛ يحتاج `Authorization: Bearer` عند ضبط `METRICS_TOKEN`) |
-| المصادقة | `GET /auth/config` (عام)، `GET /auth/me` |
-| المؤسسة | `GET /org/tree`، `GET /org/projects`، `GET /org/employees`، `POST/PATCH/DELETE /org/{departments,sections,projects,employees}` |
-| المجموعات | `GET/POST /groups`، `PATCH/DELETE /groups/:id` (كتابة للمشرف؛ الأعضاء يُستبدلون في كل تحديث) |
-| الأدوار | `GET /roles`، `PATCH/DELETE /roles/:role` (كتابة لمسؤول النظام؛ تتفوّق تجاوزات الدور على الافتراضيات المشتركة) |
-| المستخدمون | `GET/POST /users`، `GET/PATCH/DELETE /users/:id`، `POST /users/:id/reset-password`، `POST /users/:id/revoke-sessions` (كتابة للمشرف؛ قراءة للمدير والمدقّق) |
-| المجلدات | `GET /folders/tree`، `GET/POST /folders`، `GET/PATCH/DELETE /folders/:id`، `GET/PUT /folders/:id/acl` |
-| الملفات | `POST /files/presign-upload`، `POST /files`، `GET /files/:id/download` (رابط تذكرة 120 ثانية؛ يحتاج `EXPORT`)، `GET /files/:id/content` (بث بالتذكرة) |
-| الوثائق | `GET/POST /documents`، `GET/PATCH/DELETE /documents/:id`، `GET /documents/:id/permissions`، `POST /documents/:id/versions`، `POST /documents/:id/declare-record` |
-| الاعتماد | `GET/POST /approval-chains`، `PATCH /approval-chains/:id`، `GET/POST /approvals`، `GET /approvals/pending`، `GET /approvals/:id`، `POST /approvals/:id/decide` |
-| الاحتفاظ | `GET/POST /retention/policies`، `PATCH/DELETE /retention/policies/:id`، `GET/POST /retention/items`، `PATCH /retention/items/:id`، `POST /retention/items/:id/execute` |
-| الحجز القانوني | `GET/POST /legal-holds`، `GET /legal-holds/:id`، `POST /legal-holds/:id/documents`، `DELETE /legal-holds/:id/documents/:documentId`، `POST /legal-holds/:id/release` |
-| الإشعارات | `GET /notifications`، `GET /notifications/unread-count`، `POST /notifications/:id/read`، `POST /notifications/read-all`، `POST /notifications` |
-| قوالب الإشعارات | `GET/POST /notification-templates`، `PATCH/DELETE /notification-templates/:id`، `POST /notification-templates/:id/reset` (كتابة للمشرف؛ كتالوج مبذور) |
-| المهام | `GET/POST /tasks`، `PATCH/DELETE /tasks/:id`، `POST /tasks/:id/complete` |
-| قوالب التقارير | `GET /report-templates`، `PATCH /report-templates/:id/favorite` |
-| التقارير | `GET /reports/summary`، `GET/POST /reports/schedules`، `PATCH/DELETE /reports/schedules/:id`، `POST /reports/schedules/:id/run`، `GET/POST /reports/runs`، `GET /reports/runs/:id/download` (تذكرة 120 ثانية)، `GET /reports/runs/:id/content` |
-| البحوث المحفوظة | `GET/POST /saved-searches`، `PATCH/DELETE /saved-searches/:id` |
-| الإعدادات | `GET /settings`، `GET/PUT /settings/:key` (مشرف) |
-| التدقيق | `GET /audit` (مدقّق / مشرف) |
+| المجال          | نقاط النهاية                                                                                                                                                                                                                                   |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| الصحة           | `GET /health`، `GET /health/ready` (بلا بيئة)                                                                                                                                                                                                  |
+| المراقبة        | `GET /api/v1/metrics` (Prometheus؛ يحتاج `Authorization: Bearer` عند ضبط `METRICS_TOKEN`)                                                                                                                                                      |
+| المصادقة        | `GET /auth/config` (عام)، `GET /auth/me`                                                                                                                                                                                                       |
+| المؤسسة         | `GET /org/tree`، `GET /org/projects`، `GET /org/employees`، `POST/PATCH/DELETE /org/{departments,sections,projects,employees}`                                                                                                                 |
+| المجموعات       | `GET/POST /groups`، `PATCH/DELETE /groups/:id` (كتابة للمشرف؛ الأعضاء يُستبدلون في كل تحديث)                                                                                                                                                   |
+| الأدوار         | `GET /roles`، `PATCH/DELETE /roles/:role` (كتابة لمسؤول النظام؛ تتفوّق تجاوزات الدور على الافتراضيات المشتركة)                                                                                                                                 |
+| المستخدمون      | `GET/POST /users`، `GET/PATCH/DELETE /users/:id`، `POST /users/:id/reset-password`، `POST /users/:id/revoke-sessions` (كتابة للمشرف؛ قراءة للمدير والمدقّق)                                                                                    |
+| المجلدات        | `GET /folders/tree`، `GET/POST /folders`، `GET/PATCH/DELETE /folders/:id`، `GET/PUT /folders/:id/acl`                                                                                                                                          |
+| الملفات         | `POST /files/presign-upload`، `POST /files`، `GET /files/:id/download` (رابط تذكرة 120 ثانية؛ يحتاج `EXPORT`)، `GET /files/:id/content` (بث بالتذكرة)                                                                                          |
+| الوثائق         | `GET/POST /documents`، `GET/PATCH/DELETE /documents/:id`، `GET /documents/:id/permissions`، `POST /documents/:id/versions`، `POST /documents/:id/declare-record`                                                                               |
+| الاعتماد        | `GET/POST /approval-chains`، `PATCH /approval-chains/:id`، `GET/POST /approvals`، `GET /approvals/pending`، `GET /approvals/:id`، `POST /approvals/:id/decide`                                                                                 |
+| الاحتفاظ        | `GET/POST /retention/policies`، `PATCH/DELETE /retention/policies/:id`، `GET/POST /retention/items`، `PATCH /retention/items/:id`، `POST /retention/items/:id/execute`                                                                         |
+| الحجز القانوني  | `GET/POST /legal-holds`، `GET /legal-holds/:id`، `POST /legal-holds/:id/documents`، `DELETE /legal-holds/:id/documents/:documentId`، `POST /legal-holds/:id/release`                                                                           |
+| الإشعارات       | `GET /notifications`، `GET /notifications/unread-count`، `POST /notifications/:id/read`، `POST /notifications/read-all`، `POST /notifications`                                                                                                 |
+| قوالب الإشعارات | `GET/POST /notification-templates`، `PATCH/DELETE /notification-templates/:id`، `POST /notification-templates/:id/reset` (كتابة للمشرف؛ كتالوج مبذور)                                                                                          |
+| المهام          | `GET/POST /tasks`، `PATCH/DELETE /tasks/:id`، `POST /tasks/:id/complete`                                                                                                                                                                       |
+| قوالب التقارير  | `GET /report-templates`، `PATCH /report-templates/:id/favorite`                                                                                                                                                                                |
+| التقارير        | `GET /reports/summary`، `GET/POST /reports/schedules`، `PATCH/DELETE /reports/schedules/:id`، `POST /reports/schedules/:id/run`، `GET/POST /reports/runs`، `GET /reports/runs/:id/download` (تذكرة 120 ثانية)، `GET /reports/runs/:id/content` |
+| البحوث المحفوظة | `GET/POST /saved-searches`، `PATCH/DELETE /saved-searches/:id`                                                                                                                                                                                 |
+| الإعدادات       | `GET /settings`، `GET/PUT /settings/:key` (مشرف)                                                                                                                                                                                               |
+| التدقيق         | `GET /audit` (مدقّق / مشرف)                                                                                                                                                                                                                    |
 
 </details>
 
@@ -180,29 +186,29 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 <details>
 <summary><b>كل أوامر npm (اضغط للعرض)</b></summary>
 
-| الأمر | الوصف |
-| --- | --- |
-| `npm run dev` | خادم تطوير Vite |
-| `npm run dev:all` | الحزمة المحلية كاملة + الواجهة |
-| `npm run build` | فحص الأنواع (`tsc --noEmit`) ثم بناء الإنتاج |
-| `npm run build:singlefile` | نفس الحزمة في ملف `dist/index.html` واحد (عرض دون اتصال) |
-| `npm run preview` | تقديم حزمة الإنتاج محليًا |
-| `npm run typecheck` | فحص TypeScript فقط |
-| `npm run lint` | ESLint |
-| `npm run test` | تشغيل Vitest مرة واحدة |
-| `npm run test:watch` | Vitest في وضع المراقبة |
-| `npm run test:coverage` | تغطية مع عتبات دنيا |
-| `npm run test:browser` | اختبار دخان بمتصفح Playwright على حزمة الإنتاج في الوضع دون اتصال (يحتاج `npx playwright install chromium` مرة واحدة) |
-| `npm run format` / `format:check` | Prettier كتابةً / فحصًا |
-| `npm run check:secrets` | فحص الأسرار والتتبّع |
-| `npm run shared:build` | تجميع `packages/shared` إلى `dist/` (يستهلكه الـ API) |
-| `npm run api:install` | تثبيت حزمة `api/` وربط `@edas/shared` |
-| `npm run api:typecheck` / `api:lint` / `api:test` / `api:build` | بوابات الـ API |
-| `npm run api:test:coverage` | اختبارات الـ API مع تغطية وعتبات دنيا |
-| `npm run api:dev` | الـ API في وضع المراقبة |
-| `npm run stack:up` / `stack:down` | تشغيل/إيقاف حاويات الحزمة المحلية |
-| `npm run e2e` | اختبار طرفي للـ API (Docker: Postgres + Keycloak + S3 mock) |
-| `npm run demo:seed` | إنشاء/حذف 20 وثيقة تجريبية عبر مسار الرفع الحقيقي (`-- --clean`) |
+| الأمر                                                           | الوصف                                                                                                                 |
+| --------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `npm run dev`                                                   | خادم تطوير Vite                                                                                                       |
+| `npm run dev:all`                                               | الحزمة المحلية كاملة + الواجهة                                                                                        |
+| `npm run build`                                                 | فحص الأنواع (`tsc --noEmit`) ثم بناء الإنتاج                                                                          |
+| `npm run build:singlefile`                                      | نفس الحزمة في ملف `dist/index.html` واحد (عرض دون اتصال)                                                              |
+| `npm run preview`                                               | تقديم حزمة الإنتاج محليًا                                                                                             |
+| `npm run typecheck`                                             | فحص TypeScript فقط                                                                                                    |
+| `npm run lint`                                                  | ESLint                                                                                                                |
+| `npm run test`                                                  | تشغيل Vitest مرة واحدة                                                                                                |
+| `npm run test:watch`                                            | Vitest في وضع المراقبة                                                                                                |
+| `npm run test:coverage`                                         | تغطية مع عتبات دنيا                                                                                                   |
+| `npm run test:browser`                                          | اختبار دخان بمتصفح Playwright على حزمة الإنتاج في الوضع دون اتصال (يحتاج `npx playwright install chromium` مرة واحدة) |
+| `npm run format` / `format:check`                               | Prettier كتابةً / فحصًا                                                                                               |
+| `npm run check:secrets`                                         | فحص الأسرار والتتبّع                                                                                                  |
+| `npm run shared:build`                                          | تجميع `packages/shared` إلى `dist/` (يستهلكه الـ API)                                                                 |
+| `npm run api:install`                                           | تثبيت حزمة `api/` وربط `@edas/shared`                                                                                 |
+| `npm run api:typecheck` / `api:lint` / `api:test` / `api:build` | بوابات الـ API                                                                                                        |
+| `npm run api:test:coverage`                                     | اختبارات الـ API مع تغطية وعتبات دنيا                                                                                 |
+| `npm run api:dev`                                               | الـ API في وضع المراقبة                                                                                               |
+| `npm run stack:up` / `stack:down`                               | تشغيل/إيقاف حاويات الحزمة المحلية                                                                                     |
+| `npm run e2e`                                                   | اختبار طرفي للـ API (Docker: Postgres + Keycloak + S3 mock)                                                           |
+| `npm run demo:seed`                                             | إنشاء/حذف 20 وثيقة تجريبية عبر مسار الرفع الحقيقي (`-- --clean`)                                                      |
 
 </details>
 
@@ -213,7 +219,16 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 الـ API يكتب **كائن JSON واحدًا في كل سطر** إلى stdout/stderr (`api/src/common/logging/json.logger.ts`)، فيقرأه جامع سجلات أو `docker logs` دون تعبيرات نمطية:
 
 ```json
-{"time":"2026-11-10T09:12:44.318Z","level":"log","message":"GET /api/v1/documents 200 41.7ms","context":"HTTP","correlationId":"3f0c…","userId":"9d1e…","method":"GET","route":"/documents"}
+{
+  "time": "2026-11-10T09:12:44.318Z",
+  "level": "log",
+  "message": "GET /api/v1/documents 200 41.7ms",
+  "context": "HTTP",
+  "correlationId": "3f0c…",
+  "userId": "9d1e…",
+  "method": "GET",
+  "route": "/documents"
+}
 ```
 
 - `LOG_LEVEL` (`error|warn|log|debug|verbose`، الافتراضي `log`) يرشّح البث؛ والقيمة غير المعروفة تُفشل إقلاع الخادم بدل تجاهلها بصمت.
@@ -235,10 +250,10 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 `docker compose` في هذا المستودع للتطوير المحلي فقط. الإنتاج يحتاج:
 
 - صورة الـ API من `api/Dockerfile` (سياق البناء جذر المستودع لأن `@edas/shared` حزمة محلية) وتعمل بمستخدم `node` غير الجذر.
-- PostgreSQL 16 وKeycloak 26 وMinIO (أو أي S3 متوافق) مُدارة خارج الحزمة.
+- PostgreSQL 16 وKeycloak 26 وMinIO (أو أي S3 متوافق) مُدارة خارج الحزمة، وRedis اختياري لتشغيل طابور المعاينة عبر النسخ. صور `docker-compose.yml` و`api/Dockerfile` مثبّتة على digests محلية متحققة بدل `latest`.
 - خادم ملفات ثابت يقدّم ناتج `npm run build` من `dist/`، وبوابة عكسية تنهي TLS أمام الواجهة والـ API.
 
-**البوابة العكسية والكوكيز:** مرّر `Host` و`X-Forwarded-Proto` كما هما، واضبط `APP_BASE_URL` (أصل الواجهة) و`API_PUBLIC_URL` (أصل الـ API) و`SESSION_COOKIE_SECURE=true`. يجب أن تكون `CORS_ORIGINS` قائمة أصول `https://` صريحة؛ الخادم يرفض `*` و`http://` عند `NODE_ENV=production`.
+**البوابة العكسية والكوكيز:** مرّر `Host` و`X-Forwarded-Proto` كما هما، واضبط `APP_BASE_URL` (أصل الواجهة) و`API_PUBLIC_URL` (أصل الـ API) و`SESSION_COOKIE_SECURE=true`. أضف ترويسة `Content-Security-Policy: frame-ancestors 'none'` (و`X-Frame-Options: DENY`) على استجابات HTML من البوابة؛ `frame-ancestors` لا تعمل داخل `<meta>`، لذا مكانها الترويسة. يجب أن تكون `CORS_ORIGINS` قائمة أصول `https://` صريحة؛ الخادم يرفض `*` و`http://` عند `NODE_ENV=production`.
 
 **ما يرفض الخادم الإقلاع بدونه في الإنتاج:** `DATABASE_URL`، `KEYCLOAK_ISSUER`، `KEYCLOAK_AUDIENCE`، `KEYCLOAK_ADMIN`، `KEYCLOAK_ADMIN_PASSWORD`، `MINIO_ENDPOINT`، `MINIO_BUCKET`، `MINIO_ACCESS_KEY`، `MINIO_SECRET_KEY`، `CORS_ORIGINS`، `SESSION_SECRET`. ويرفض كذلك قيم التطوير (`admin`، `edas_dev_pw`، `edas_minio_dev_pw`) وأي سر أقصر من 32 حرفًا في `SESSION_SECRET` أو `DOWNLOAD_TICKET_SECRET` — التفاصيل في [`env.validation.ts`](api/src/common/config/env.validation.ts).
 
@@ -246,16 +261,16 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 
 **الترقية:** طبّق الترحيلات قبل تشغيل النسخة الجديدة بـ `cd api && npx prisma migrate deploy` (حاوية compose تفعل ذلك عند كل إقلاع). لا تستخدم `prisma db push` في الإنتاج. راقب `/api/v1/health` و`/api/v1/health/ready`، وأبقِ سياسة إعادة التشغيل (`restart: unless-stopped` أو ما يعادلها) في مدير الحاويات. لجمع المقاييس اضبط `METRICS_TOKEN` (32 حرفًا فأكثر) وأرسل `Authorization: Bearer` من Prometheus؛ بدون التوكن تعيد `/api/v1/metrics` الرمز 403 في الإنتاج.
 
-| السر | الأثر عند تدويره |
-| --- | --- |
-| `SESSION_SECRET` | تُبطل كل جلسات المتصفح ويعود المستخدمون لتسجيل الدخول |
-| `DOWNLOAD_TICKET_SECRET` | تُبطل روابط التنزيل الصادرة فورًا |
+| السر                                                            | الأثر عند تدويره                                       |
+| --------------------------------------------------------------- | ------------------------------------------------------ |
+| `SESSION_SECRET`                                                | تُبطل كل جلسات المتصفح ويعود المستخدمون لتسجيل الدخول  |
+| `DOWNLOAD_TICKET_SECRET`                                        | تُبطل روابط التنزيل الصادرة فورًا                      |
 | `KEYCLOAK_ADMIN_PASSWORD` · `MINIO_SECRET_KEY` · `DATABASE_URL` | تتطلب تحديث الخدمة والمستخدم معًا في نافذة صيانة قصيرة |
-| عميل Keycloak السري (إن استُخدم) | أعد النشر بالقيمة نفسها على كل نسخ الـ API |
+| عميل Keycloak السري (إن استُخدم)                                | أعد النشر بالقيمة نفسها على كل نسخ الـ API             |
 
 القاعدة: القيمة نفسها على كل النسخ، ثم إعادة تشغيل متدرجة. جدول تدوير `SESSION_SECRET` خارج ساعات العمل لأنه يقطع الجلسات الحالية.
 
-**التوسّع:** طابور المعاينة وتخزين المعاينات داخل نسخة الـ API وغير مشتركين، فشغّل نسخة واحدة حتى تنقل الطابور إلى Redis/BullMQ. تذاكر التنزيل بلا حالة وتعمل عبر النسخ، ومهمة تنظيف الجلسات المنتهية (`SESSION_CLEANUP_INTERVAL_MS`، الافتراضي ساعة) آمنة مع النسخ المتعددة لأنها حذف متكرر لا يعتمد على حالة مشتركة.
+**التوسّع:** عند ضبط `REDIS_URL` ينتقل طابور المعاينة إلى Redis/BullMQ، ويعمل كل عامل بحد `PREVIEW_CONCURRENCY`، مع إعادة محاولة أسّية (3 محاولات) ووظائف فاشلة محفوظة للمراجعة. بدون `REDIS_URL` يبقى الطابور داخل عملية واحدة. تخزين المعاينات في MinIO مشترك بالفعل. تذاكر التنزيل بلا حالة وتعمل عبر النسخ، ومهمة تنظيف الجلسات المنتهية (`SESSION_CLEANUP_INTERVAL_MS`، الافتراضي ساعة) آمنة مع النسخ المتعددة.
 
 ### 💾 النسخ الاحتياطي والاستعادة
 
@@ -287,17 +302,17 @@ docker compose start api
 
 استخدم `pg_restore` من الإصدار الرئيسي نفسه لـ `pg_dump` (16). بعد الاستعادة تحقق من `/api/v1/health/ready`، ثم افتح وثيقة واختبر المعاينة والتنزيل (التنزيل يعيد فحص الوصول إلى الأصل في التخزين)، وابحث في `/api/v1/audit` للتأكد من استمرار سلسلة التدقيق.
 
-**الالتزام التشغيلي:** لا توجد في المستودع مهمة نسخ مجدولة ولا Versioning على الحاوية، فالنسخ مسؤولية تشغيلية. الحد الأدنى المقترح: `pg_dump` يومي مع احتفاظ 30 يومًا، و`mc mirror` يومي إلى تخزين خارج الموقع، ونسخة أسبوعية منفصلة، واختبار استعادة كل ربع سنة. زمن الاسترداد = زمن `pg_restore` + `mc mirror`، وقِسه في اختبار الاستعادة بدل تقديره.
+**الالتزام التشغيلي:** يوفّر المستودع `scripts/backup/backup.sh` (pg_dump + أرشيف MinIO + SHA256SUMS) و`scripts/backup/verify.sh` الذي يستعيد النسخة في قاعدة مؤقتة معزولة. لا توجد مهمة مجدولة؛ اربط السكربت بـ cron أو منصة النسخ. `docker compose` يفعّل **Versioning** على الحاوية المحلية (`minio-init`)، وعلى الإنتاج تفعيله على حاوية S3 الخارجية. الدليل الكامل وأهداف RPO/RTO في [`docs/backup-restore.md`](docs/backup-restore.md).
 
 ### 📦 التبعيات و`npm audit`
 
 تعمل `npm audit --audit-level=high` في CI للحزمتين بعد التثبيت، فأي استشارة جديدة عالية أو حرجة تُفشل البناء. الحزمتان مدقّقتان ومحدّثتان، والتثبيتات في `overrides` لأن عدة حزم متأثرة غير مباشرة ولم تُصدر حزمها الأم نسخًا مصحّحة بعد:
 
-| التثبيت | السبب |
-| --- | --- |
-| `minimatch@^11` (داخل `eslint` و`@eslint/config-array` و`@typescript-eslint/typescript-estree`) | النسخة المصحّحة الوحيدة (11.0.1+) إصدار رئيسي لم تتبنّه الحزم الأم |
-| `esbuild@^0.28` · `nanoid@^3.3.20` · `source-map-js@^1.2.2` | إصدارات مصحّحة تحت `vite` و`postcss` |
-| `body-parser@^2.4` · `fast-uri@^3.1.9` · `glob@^14` · `deepmerge-ts@^8` | إصدارات مصحّحة تحت `express` و`ajv` و`@nestjs/cli` و`@prisma/config` |
+| التثبيت                                                                                         | السبب                                                                |
+| ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `minimatch@^11` (داخل `eslint` و`@eslint/config-array` و`@typescript-eslint/typescript-estree`) | النسخة المصحّحة الوحيدة (11.0.1+) إصدار رئيسي لم تتبنّه الحزم الأم   |
+| `esbuild@^0.28` · `nanoid@^3.3.20` · `source-map-js@^1.2.2`                                     | إصدارات مصحّحة تحت `vite` و`postcss`                                 |
+| `body-parser@^2.4` · `fast-uri@^3.1.9` · `glob@^14` · `deepmerge-ts@^8`                         | إصدارات مصحّحة تحت `express` و`ajv` و`@nestjs/cli` و`@prisma/config` |
 
 رُقّيت `vite` إلى `7.3.8` و`@nestjs/platform-express` إلى `11.2.9` (تثبّت `multer@2.5.0`). الاستشارات الثلاث الباقية **منخفضة** ومحصورة في أدوات البناء: `deepmerge` (`>=4.2.0`) لم تنشر إصلاحًا قط، وتصل فقط عبر `@nestjs/cli` → `fork-ts-checker-webpack-plugin` المستخدمة في البناء لا في وقت التشغيل. إزالتها تحتاج `@nestjs/cli` 12 التي تفرض TypeScript 6 و`@nestjs/schematics` 12 — ترحيل سلسلة أدوات لا رقعة. أعد النظر في التثبيتات عندما تُصدر `eslint` و`@typescript-eslint` و`@nestjs/cli` نسخًا تحمل التبعيات المصحّحة.
 
@@ -347,24 +362,24 @@ src/
 
 ### 🧭 Overview
 
-| Area | What actually works |
-| --- | --- |
-| **Documents** | Create, edit, new versions, move/archive, checkout/checkin, delete/restore/purge, signatures, record declarations |
+| Area                        | What actually works                                                                                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Documents**               | Create, edit, new versions, move/archive, checkout/checkin, delete/restore/purge, signatures, record declarations                                                                |
 | **Classification & access** | Folder tree, per-folder ACL rules (`USER` / `ROLE` / `DEPARTMENT` × `VIEW\|CREATE\|EDIT\|DELETE\|APPROVE\|EXPORT`), department scoping, and one role matrix in `packages/shared` |
-| **Approvals & retention** | Approval chains and decisions, retention policies and items with disposal execution, legal holds, tasks and notifications |
-| **Search & reporting** | Advanced search, saved searches, scheduled and manual reports exported as CSV, Excel and right-to-left Arabic PDF (embedded Amiri font) |
-| **Preview & download** | In-app preview for PDF, images, Office, DXF and DWG through the API, and downloads through short-lived tickets — MinIO is never exposed |
-| **Identity & audit** | Keycloak (authorization code + PKCE) with an `httpOnly` session cookie and CSRF, plus a hash-chained audit trail for every mutation |
+| **Approvals & retention**   | Approval chains and decisions, retention policies and items with disposal execution, legal holds, tasks and notifications                                                        |
+| **Search & reporting**      | Advanced search, saved searches, scheduled and manual reports exported as CSV, Excel and right-to-left Arabic PDF (embedded Amiri font)                                          |
+| **Preview & download**      | In-app preview for PDF, images, Office, DXF and DWG through the API, and downloads through short-lived tickets — MinIO is never exposed                                          |
+| **Identity & audit**        | Keycloak (authorization code + PKCE) with an `httpOnly` session cookie and CSRF, plus a hash-chained audit trail for every mutation                                              |
 
 ### 🧱 Tech stack
 
-| Layer | Technologies |
-| --- | --- |
-| **Front end** | React 19 · TypeScript 5.9 · Vite 7 · Tailwind CSS 4 (RTL, light/dark) · React Router 7 (HashRouter) |
-| **UI & rendering** | Recharts · lucide-react · pdfjs-dist · dxf-viewer |
-| **Testing** | Vitest · Testing Library · jsdom · Playwright (browser smoke test) |
-| **Backend (`api/`)** | NestJS 11 · Prisma 6 · PostgreSQL · Keycloak (OIDC/JWKS) · MinIO (S3) |
-| **Build** | Chunked production bundle (vendor split, lazy PDF/DXF viewers and routes) and an optional single-file build via `vite-plugin-singlefile` for the offline demo |
+| Layer                | Technologies                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Front end**        | React 19 · TypeScript 5.9 · Vite 7 · Tailwind CSS 4 (RTL, light/dark) · React Router 7 (HashRouter)                                                           |
+| **UI & rendering**   | Recharts · lucide-react · pdfjs-dist · dxf-viewer                                                                                                             |
+| **Testing**          | Vitest · Testing Library · jsdom · Playwright (browser smoke test)                                                                                            |
+| **Backend (`api/`)** | NestJS 11 · Prisma 6 · PostgreSQL · Keycloak (OIDC/JWKS) · MinIO (S3)                                                                                         |
+| **Build**            | Chunked production bundle (vendor split, lazy PDF/DXF viewers and routes) and an optional single-file build via `vite-plugin-singlefile` for the offline demo |
 
 ### ⚡ Quick start
 
@@ -406,11 +421,12 @@ cd api && npm run build && npm run maintenance:reconcile-departments -- --apply
 
 The SPA runs in offline prototype mode unless the `VITE_` variables below are set. Copy [`.env.example`](.env.example) to `.env.local`:
 
-| Variable | Example | Purpose |
-| --- | --- | --- |
-| `VITE_API_URL` | `http://localhost:4000` | API origin (routes live under `/api/v1`) |
-| `VITE_OIDC_ISSUER` | `http://localhost:8080/realms/edas` | Realm used by the browser login |
-| `VITE_OIDC_CLIENT_ID` | `edas-web` | Public PKCE client from the realm import |
+| Variable              | Example                             | Purpose                                                                                                                        |
+| --------------------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `VITE_API_URL`        | `http://localhost:4000`             | API origin (routes live under `/api/v1`)                                                                                       |
+| `VITE_OIDC_ISSUER`    | `http://localhost:8080/realms/edas` | Realm used by the browser login                                                                                                |
+| `VITE_OIDC_CLIENT_ID` | `edas-web`                          | Public PKCE client from the realm import                                                                                       |
+| `VITE_REQUIRE_API`    | `true`                              | For deployed builds: fail the build when any of the three connection variables is missing instead of shipping the offline demo |
 
 When configured, `/login` shows a single Keycloak button that sends the browser to `/api/v1/auth/login`. The API — not the browser — runs the authorization-code + PKCE exchange (`/api/v1/auth/callback`), keeps the OIDC tokens server-side in a `UserSession` row and hands the SPA an opaque **httpOnly session cookie** (`edas_session`) plus a readable CSRF cookie (`edas_csrf`) that mutating requests must echo in the `x-csrf-token` header. The SPA never stores tokens, hydrates `/auth/me` on boot and calls `/auth/logout` (which ends the Keycloak session) on sign-out; `src/lib/role-bridge.ts` maps API roles and ACL actions onto the UI role / `PermAction` model.
 
@@ -425,6 +441,10 @@ The API side needs `APP_BASE_URL` (the SPA origin it redirects back to) and, in 
 - Keycloak-issued JWTs are validated server-side (RS256 via JWKS) and RBAC is enforced there, not in the browser.
 - Account status is checked on every request, so locked or deactivated users are rejected even while their JWT is still valid.
 - The permission matrix is the single source of truth in `packages/shared` (`ROLE_CAPABILITIES`, `isGlobalRole`, `USER_ROLES`) and is consumed by both the SPA and the API.
+- ACL replacement is limited to `SYSTEM_ADMIN` and `ARCHIVIST` through `canManageAcl` in `packages/shared`; the `EDIT` action alone is not enough to change folder permissions.
+- Folder scope (`PUBLIC` / `DEPARTMENT` / `SECTION` / `PRIVATE`) is enforced server-side: `PUBLIC` is readable by authenticated users, `DEPARTMENT` by the folder department, `SECTION` by the actor section (`Folder.sectionId`), and `PRIVATE` by its owner (`ownerId`); legacy ownerless private folders fall back to department scope.
+- Effective permissions are role capabilities ∩ folder scope ∩ ACL restrictions. `DENY` always wins and an `ALLOW` rule can never grant an action outside the role ceiling. Changing scope or inheritance requires `MANAGE_SCOPE` (system administrator / archivist).
+- Production bundles ship a `<meta>` Content-Security-Policy that restricts scripts, connections and resources; the API origin is added to `connect-src` from `VITE_API_URL`.
 - Every mutation writes an append-only, hash-chained row to the audit log.
 - `infra/keycloak/realm-edas.json` is **development-only**: users `admin` / `manager` / `employee` (password = username) and an `edas-cli` client that allows the password grant for local scripts and `npm run e2e`. The browser client (`edas-web`) has the password grant disabled and only accepts authorization code with PKCE. Production must import its own realm and rotate every credential — see [`infra/keycloak/README.md`](infra/keycloak/README.md).
 
@@ -439,23 +459,24 @@ The preview page (`/documents/:id/preview`) streams the stored original or a con
 
 Downloads never expose MinIO either: `/files/:id/download` returns a 120-second ticket URL at `/files/:id/content?ticket=…` instead of a presigned storage link. Opening it needs no bearer header (so a normal browser download works), but the endpoint re-checks access and the `EXPORT` grant at delivery time and audits the first delivery, so a revoked grant cannot keep using an older link. Tickets are AES-256-GCM sealed and stateless, so no Redis or database rows are involved: set `DOWNLOAD_TICKET_SECRET` (32+ characters) to the same value on every instance; without it they are valid only inside the issuing process. Report exports use the same ticketing through `/reports/runs/:id/download` and `/reports/runs/:id/content`.
 
-| Detected content | Preview | Cache key |
-| --- | --- | --- |
-| PDF, PNG/JPEG/GIF/WebP/BMP/TIFF/SVG, DXF, plain text | original | — |
-| DOCX/XLSX/PPTX, DOC/XLS/PPT, ODT/ODS/ODP | LibreOffice to PDF | `previews/<fileId>/<sha256>.pdf` |
-| DWG (`AC10xx`) | ODA to DXF | `previews/<fileId>/<sha256>.dxf` |
+| Detected content                                     | Preview            | Cache key                        |
+| ---------------------------------------------------- | ------------------ | -------------------------------- |
+| PDF, PNG/JPEG/GIF/WebP/BMP/TIFF/SVG, DXF, plain text | original           | —                                |
+| DOCX/XLSX/PPTX, DOC/XLS/PPT, ODT/ODS/ODP             | LibreOffice to PDF | `previews/<fileId>/<sha256>.pdf` |
+| DWG (`AC10xx`)                                       | ODA to DXF         | `previews/<fileId>/<sha256>.dxf` |
 
-Content type is detected from magic bytes, so a renamed file is rejected instead of trusted. Office/DWG conversions run outside the request path through an in-memory queue with a concurrency limit, timeout, source/output size caps, isolated temp directories that are always removed, and a minimal environment that keeps database, Keycloak and MinIO secrets away from the converter; the page polls the preview status until the cached copy is ready. Jobs live in one API process: run a single replica or move the queue to Redis/BullMQ when scaling out. Cached previews are removed when the file is purged, an administrator can drop stale ones with `POST /api/v1/preview/cache/cleanup` (`{ "olderThanDays": 30 }`), and `GET /api/v1/preview/capabilities` reports the detected converters.
+Content type is detected from magic bytes, so a renamed file is rejected instead of trusted. Office/DWG conversions run outside the request path through a preview queue with a concurrency limit, timeout, source/output size caps, isolated temp directories that are always removed, and a minimal environment that keeps database, Keycloak and MinIO secrets away from the converter; the page polls the preview status until the cached copy is ready. With `REDIS_URL` set the queue is Redis/BullMQ (three exponential-backoff attempts, failed jobs retained); without it the queue stays inside one API process. Cached previews are removed when the file is purged, an administrator can drop stale ones with `POST /api/v1/preview/cache/cleanup` (`{ "olderThanDays": 30 }`), and `GET /api/v1/preview/capabilities` reports the detected converters.
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `PREVIEW_SOFFICE_PATH` | auto-detect | LibreOffice `soffice` executable |
-| `PREVIEW_ODA_PATH` | auto-detect | ODA `ODAFileConverter` executable |
-| `PREVIEW_MAX_SOURCE_BYTES` | 50 MiB | Larger sources are download-only |
-| `PREVIEW_MAX_OUTPUT_BYTES` | 200 MiB | Converted output limit |
-| `PREVIEW_TIMEOUT_MS` | 120000 | Per-conversion timeout |
-| `PREVIEW_CONCURRENCY` | 2 | Parallel conversions per API process |
-| `PREVIEW_CACHE_SCAN_LIMIT` | 5000 | Objects scanned by the cleanup endpoint |
+| Variable                   | Default     | Purpose                                                                        |
+| -------------------------- | ----------- | ------------------------------------------------------------------------------ |
+| `PREVIEW_SOFFICE_PATH`     | auto-detect | LibreOffice `soffice` executable                                               |
+| `PREVIEW_ODA_PATH`         | auto-detect | ODA `ODAFileConverter` executable                                              |
+| `PREVIEW_MAX_SOURCE_BYTES` | 50 MiB      | Larger sources are download-only                                               |
+| `PREVIEW_MAX_OUTPUT_BYTES` | 200 MiB     | Converted output limit                                                         |
+| `PREVIEW_TIMEOUT_MS`       | 120000      | Per-conversion timeout                                                         |
+| `PREVIEW_CONCURRENCY`      | 2           | Parallel conversions per API process                                           |
+| `REDIS_URL`                | —           | Enables the shared BullMQ preview queue; without it the queue stays in-process |
+| `PREVIEW_CACHE_SCAN_LIMIT` | 5000        | Objects scanned by the cleanup endpoint                                        |
 
 Ubuntu/Debian: `apt-get install libreoffice-writer libreoffice-calc libreoffice-impress fonts-noto-core fonts-noto-ui-core`, then set `PREVIEW_SOFFICE_PATH=/usr/bin/soffice` (or leave it unset for auto-detection). Install the ODA File Converter separately and set `PREVIEW_ODA_PATH`; DWG previews stay disabled with a clear message until it is present. The bundled API image is Debian-based (`node:22-bookworm-slim`) and already ships LibreOffice plus Arabic fonts; only the ODA File Converter has to be added for DWG. ODA is glibc-only, so it runs on Debian/Ubuntu but not on Alpine.
 
@@ -466,29 +487,29 @@ All routes live under `/api/v1` and use a `{ data }` envelope; errors are `{ err
 <details>
 <summary><b>Endpoint table (click to expand)</b></summary>
 
-| Area | Endpoints |
-| --- | --- |
-| Health | `GET /health`, `GET /health/ready` (env-free) |
-| Monitoring | `GET /api/v1/metrics` (Prometheus; needs `Authorization: Bearer` when `METRICS_TOKEN` is set) |
-| Auth | `GET /auth/config` (public), `GET /auth/me` |
-| Org | `GET /org/tree`, `GET /org/projects`, `GET /org/employees`, `POST/PATCH/DELETE /org/{departments,sections,projects,employees}` |
-| Groups | `GET/POST /groups`, `PATCH/DELETE /groups/:id` (admin writes; members replaced per update) |
-| Roles | `GET /roles`, `PATCH/DELETE /roles/:role` (system admin writes; role overrides win over the shared defaults) |
-| Users | `GET/POST /users`, `GET/PATCH/DELETE /users/:id`, `POST /users/:id/reset-password`, `POST /users/:id/revoke-sessions` (admin writes; manager/auditor read) |
-| Folders | `GET /folders/tree`, `GET/POST /folders`, `GET/PATCH/DELETE /folders/:id`, `GET/PUT /folders/:id/acl` |
-| Files | `POST /files/presign-upload`, `POST /files`, `GET /files/:id/download` (120 s ticket link; needs `EXPORT`), `GET /files/:id/content` (ticket stream) |
-| Documents | `GET/POST /documents`, `GET/PATCH/DELETE /documents/:id`, `GET /documents/:id/permissions`, `POST /documents/:id/versions`, `POST /documents/:id/declare-record` |
-| Approvals | `GET/POST /approval-chains`, `PATCH /approval-chains/:id`, `GET/POST /approvals`, `GET /approvals/pending`, `GET /approvals/:id`, `POST /approvals/:id/decide` |
-| Retention | `GET/POST /retention/policies`, `PATCH/DELETE /retention/policies/:id`, `GET/POST /retention/items`, `PATCH /retention/items/:id`, `POST /retention/items/:id/execute` |
-| Holds | `GET/POST /legal-holds`, `GET /legal-holds/:id`, `POST /legal-holds/:id/documents`, `DELETE /legal-holds/:id/documents/:documentId`, `POST /legal-holds/:id/release` |
-| Notifications | `GET /notifications`, `GET /notifications/unread-count`, `POST /notifications/:id/read`, `POST /notifications/read-all`, `POST /notifications` |
-| Notification templates | `GET/POST /notification-templates`, `PATCH/DELETE /notification-templates/:id`, `POST /notification-templates/:id/reset` (admin writes; seeded catalog) |
-| Tasks | `GET/POST /tasks`, `PATCH/DELETE /tasks/:id`, `POST /tasks/:id/complete` |
-| Templates | `GET /report-templates`, `PATCH /report-templates/:id/favorite` |
-| Reports | `GET /reports/summary`, `GET/POST /reports/schedules`, `PATCH/DELETE /reports/schedules/:id`, `POST /reports/schedules/:id/run`, `GET/POST /reports/runs`, `GET /reports/runs/:id/download` (120 s ticket), `GET /reports/runs/:id/content` |
-| Searches | `GET/POST /saved-searches`, `PATCH/DELETE /saved-searches/:id` |
-| Settings | `GET /settings`, `GET/PUT /settings/:key` (admin) |
-| Audit | `GET /audit` (auditor / admin) |
+| Area                   | Endpoints                                                                                                                                                                                                                                   |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Health                 | `GET /health`, `GET /health/ready` (env-free)                                                                                                                                                                                               |
+| Monitoring             | `GET /api/v1/metrics` (Prometheus; needs `Authorization: Bearer` when `METRICS_TOKEN` is set)                                                                                                                                               |
+| Auth                   | `GET /auth/config` (public), `GET /auth/me`                                                                                                                                                                                                 |
+| Org                    | `GET /org/tree`, `GET /org/projects`, `GET /org/employees`, `POST/PATCH/DELETE /org/{departments,sections,projects,employees}`                                                                                                              |
+| Groups                 | `GET/POST /groups`, `PATCH/DELETE /groups/:id` (admin writes; members replaced per update)                                                                                                                                                  |
+| Roles                  | `GET /roles`, `PATCH/DELETE /roles/:role` (system admin writes; role overrides win over the shared defaults)                                                                                                                                |
+| Users                  | `GET/POST /users`, `GET/PATCH/DELETE /users/:id`, `POST /users/:id/reset-password`, `POST /users/:id/revoke-sessions` (admin writes; manager/auditor read)                                                                                  |
+| Folders                | `GET /folders/tree`, `GET/POST /folders`, `GET/PATCH/DELETE /folders/:id`, `GET/PUT /folders/:id/acl`                                                                                                                                       |
+| Files                  | `POST /files/presign-upload`, `POST /files`, `GET /files/:id/download` (120 s ticket link; needs `EXPORT`), `GET /files/:id/content` (ticket stream)                                                                                        |
+| Documents              | `GET/POST /documents`, `GET/PATCH/DELETE /documents/:id`, `GET /documents/:id/permissions`, `POST /documents/:id/versions`, `POST /documents/:id/declare-record`                                                                            |
+| Approvals              | `GET/POST /approval-chains`, `PATCH /approval-chains/:id`, `GET/POST /approvals`, `GET /approvals/pending`, `GET /approvals/:id`, `POST /approvals/:id/decide`                                                                              |
+| Retention              | `GET/POST /retention/policies`, `PATCH/DELETE /retention/policies/:id`, `GET/POST /retention/items`, `PATCH /retention/items/:id`, `POST /retention/items/:id/execute`                                                                      |
+| Holds                  | `GET/POST /legal-holds`, `GET /legal-holds/:id`, `POST /legal-holds/:id/documents`, `DELETE /legal-holds/:id/documents/:documentId`, `POST /legal-holds/:id/release`                                                                        |
+| Notifications          | `GET /notifications`, `GET /notifications/unread-count`, `POST /notifications/:id/read`, `POST /notifications/read-all`, `POST /notifications`                                                                                              |
+| Notification templates | `GET/POST /notification-templates`, `PATCH/DELETE /notification-templates/:id`, `POST /notification-templates/:id/reset` (admin writes; seeded catalog)                                                                                     |
+| Tasks                  | `GET/POST /tasks`, `PATCH/DELETE /tasks/:id`, `POST /tasks/:id/complete`                                                                                                                                                                    |
+| Templates              | `GET /report-templates`, `PATCH /report-templates/:id/favorite`                                                                                                                                                                             |
+| Reports                | `GET /reports/summary`, `GET/POST /reports/schedules`, `PATCH/DELETE /reports/schedules/:id`, `POST /reports/schedules/:id/run`, `GET/POST /reports/runs`, `GET /reports/runs/:id/download` (120 s ticket), `GET /reports/runs/:id/content` |
+| Searches               | `GET/POST /saved-searches`, `PATCH/DELETE /saved-searches/:id`                                                                                                                                                                              |
+| Settings               | `GET /settings`, `GET/PUT /settings/:key` (admin)                                                                                                                                                                                           |
+| Audit                  | `GET /audit` (auditor / admin)                                                                                                                                                                                                              |
 
 </details>
 
@@ -497,29 +518,29 @@ All routes live under `/api/v1` and use a `{ data }` envelope; errors are `{ err
 <details>
 <summary><b>All npm commands (click to expand)</b></summary>
 
-| Script | Description |
-| --- | --- |
-| `npm run dev` | Vite dev server |
-| `npm run dev:all` | Full local stack + the UI |
-| `npm run build` | Type-check (`tsc --noEmit`) then production build |
-| `npm run build:singlefile` | Same bundle inlined into a single `dist/index.html` (offline demo) |
-| `npm run preview` | Serve the production build locally |
-| `npm run typecheck` | TypeScript check only |
-| `npm run lint` | ESLint |
-| `npm run test` | Run the Vitest suite once |
-| `npm run test:watch` | Vitest in watch mode |
-| `npm run test:coverage` | Coverage with enforced thresholds |
-| `npm run test:browser` | Playwright browser smoke test against the production bundle in offline mode (run `npx playwright install chromium` once) |
-| `npm run format` / `format:check` | Prettier write / check |
-| `npm run check:secrets` | Secrets and tracking scan |
-| `npm run shared:build` | Compile `packages/shared` to `dist/` (used by the API) |
-| `npm run api:install` | Install the `api/` package and link `@edas/shared` |
-| `npm run api:typecheck` / `api:lint` / `api:test` / `api:build` | API gates |
-| `npm run api:test:coverage` | API tests with coverage and enforced thresholds |
-| `npm run api:dev` | API in watch mode |
-| `npm run stack:up` / `stack:down` | Start / stop the local stack containers |
-| `npm run e2e` | End-to-end API suite (Docker: Postgres + Keycloak + S3 mock) |
-| `npm run demo:seed` | Create/remove 20 demo documents via the real upload path (`-- --clean`) |
+| Script                                                          | Description                                                                                                              |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `npm run dev`                                                   | Vite dev server                                                                                                          |
+| `npm run dev:all`                                               | Full local stack + the UI                                                                                                |
+| `npm run build`                                                 | Type-check (`tsc --noEmit`) then production build                                                                        |
+| `npm run build:singlefile`                                      | Same bundle inlined into a single `dist/index.html` (offline demo)                                                       |
+| `npm run preview`                                               | Serve the production build locally                                                                                       |
+| `npm run typecheck`                                             | TypeScript check only                                                                                                    |
+| `npm run lint`                                                  | ESLint                                                                                                                   |
+| `npm run test`                                                  | Run the Vitest suite once                                                                                                |
+| `npm run test:watch`                                            | Vitest in watch mode                                                                                                     |
+| `npm run test:coverage`                                         | Coverage with enforced thresholds                                                                                        |
+| `npm run test:browser`                                          | Playwright browser smoke test against the production bundle in offline mode (run `npx playwright install chromium` once) |
+| `npm run format` / `format:check`                               | Prettier write / check                                                                                                   |
+| `npm run check:secrets`                                         | Secrets and tracking scan                                                                                                |
+| `npm run shared:build`                                          | Compile `packages/shared` to `dist/` (used by the API)                                                                   |
+| `npm run api:install`                                           | Install the `api/` package and link `@edas/shared`                                                                       |
+| `npm run api:typecheck` / `api:lint` / `api:test` / `api:build` | API gates                                                                                                                |
+| `npm run api:test:coverage`                                     | API tests with coverage and enforced thresholds                                                                          |
+| `npm run api:dev`                                               | API in watch mode                                                                                                        |
+| `npm run stack:up` / `stack:down`                               | Start / stop the local stack containers                                                                                  |
+| `npm run e2e`                                                   | End-to-end API suite (Docker: Postgres + Keycloak + S3 mock)                                                             |
+| `npm run demo:seed`                                             | Create/remove 20 demo documents via the real upload path (`-- --clean`)                                                  |
 
 </details>
 
@@ -530,7 +551,16 @@ All routes live under `/api/v1` and use a `{ data }` envelope; errors are `{ err
 The API writes **one JSON object per line** to stdout/stderr (`api/src/common/logging/json.logger.ts`), so a log shipper or `docker logs` consumer can parse it without regexes:
 
 ```json
-{"time":"2026-11-10T09:12:44.318Z","level":"log","message":"GET /api/v1/documents 200 41.7ms","context":"HTTP","correlationId":"3f0c…","userId":"9d1e…","method":"GET","route":"/documents"}
+{
+  "time": "2026-11-10T09:12:44.318Z",
+  "level": "log",
+  "message": "GET /api/v1/documents 200 41.7ms",
+  "context": "HTTP",
+  "correlationId": "3f0c…",
+  "userId": "9d1e…",
+  "method": "GET",
+  "route": "/documents"
+}
 ```
 
 - `LOG_LEVEL` (`error|warn|log|debug|verbose`, default `log`) filters the stream; an unknown value fails boot validation instead of being silently ignored.
@@ -563,16 +593,16 @@ The `docker compose` file in this repository is for local development. Productio
 
 **Upgrades:** apply migrations before starting the new release with `cd api && npx prisma migrate deploy` (the compose container does this on every boot). Never use `prisma db push` in production. Watch `/api/v1/health` and `/api/v1/health/ready`, and keep a restart policy (`restart: unless-stopped` or the platform equivalent). To scrape metrics, set `METRICS_TOKEN` (32+ characters) and send `Authorization: Bearer` from Prometheus; without the token `/api/v1/metrics` returns 403 in production.
 
-| Secret | Effect of rotation |
-| --- | --- |
-| `SESSION_SECRET` | Every browser session is invalidated and users sign in again |
-| `DOWNLOAD_TICKET_SECRET` | Every issued download link stops working immediately |
+| Secret                                                          | Effect of rotation                                                                              |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `SESSION_SECRET`                                                | Every browser session is invalidated and users sign in again                                    |
+| `DOWNLOAD_TICKET_SECRET`                                        | Every issued download link stops working immediately                                            |
 | `KEYCLOAK_ADMIN_PASSWORD` · `MINIO_SECRET_KEY` · `DATABASE_URL` | The service and the underlying account must change together, so plan a short maintenance window |
-| Keycloak client secret (if a confidential client is used) | Redeploy with the same value on every API replica |
+| Keycloak client secret (if a confidential client is used)       | Redeploy with the same value on every API replica                                               |
 
 Rule of thumb: one value across all replicas, update the source of truth, then restart gradually. Rotate `SESSION_SECRET` outside working hours because it cuts existing sessions.
 
-**Scaling:** the preview queue and preview cache live inside one API process, so run a single replica until the queue moves to Redis/BullMQ. Download tickets are stateless and work across replicas, and the expired-session cleanup (`SESSION_CLEANUP_INTERVAL_MS`, default one hour) is safe on multiple replicas because it only repeats an idempotent delete.
+**Scaling:** with `REDIS_URL` the preview queue runs on Redis/BullMQ (three exponential-backoff attempts, failed jobs retained) and the preview cache is shared in MinIO; without it the queue stays inside one API process, so run a single replica. Download tickets are stateless and work across replicas, and the expired-session cleanup (`SESSION_CLEANUP_INTERVAL_MS`, default one hour) is safe on multiple replicas because it only repeats an idempotent delete.
 
 ### 💾 Backup and restore
 
@@ -604,17 +634,17 @@ docker compose start api
 
 Use the `pg_restore` major version that matches the `pg_dump` that produced the archive (16). After restoring, check `/api/v1/health/ready`, open a document and exercise preview plus download (download re-checks access to the stored original), and query `/api/v1/audit` to confirm the audit chain continues.
 
-**Operational commitment:** the repository ships no scheduled backup job and no bucket versioning, so backups are an operational responsibility. Suggested minimum: daily `pg_dump` with 30-day retention, a daily `mc mirror` to off-site storage, a separate weekly copy, and a restore test every quarter. Recovery time equals `pg_restore` + `mc mirror`, so measure it during a restore test instead of guessing.
+**Operational commitment:** `scripts/backup/backup.sh` produces a `pg_dump`, a MinIO archive and `SHA256SUMS`; `scripts/backup/verify.sh` restores it into a throwaway database. No schedule is built in — connect it to cron or the platform backup service. `docker compose` enables bucket **versioning** for the local stack in `minio-init`; production must enable it on the external S3 bucket. See [`docs/backup-restore.md`](docs/backup-restore.md) for RPO/RTO, PITR and the restore drill.
 
 ### 📦 Dependencies and `npm audit`
 
 `npm audit --audit-level=high` runs in CI for both packages after install, so a new high or critical advisory fails the build. Both trees were audited and updated; the fixes are pinned in `overrides` because several vulnerable packages are transitive and their parents have not released patched versions yet:
 
-| Override | Why |
-| --- | --- |
-| `minimatch@^11` (in `eslint`, `@eslint/config-array`, `@typescript-eslint/typescript-estree`) | the only patched release (11.0.1+) is a major the parents have not adopted |
-| `esbuild@^0.28` · `nanoid@^3.3.20` · `source-map-js@^1.2.2` | patched releases under `vite` and `postcss` |
-| `body-parser@^2.4` · `fast-uri@^3.1.9` · `glob@^14` · `deepmerge-ts@^8` | patched releases under `express`, `ajv`, `@nestjs/cli` and `@prisma/config` |
+| Override                                                                                      | Why                                                                         |
+| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `minimatch@^11` (in `eslint`, `@eslint/config-array`, `@typescript-eslint/typescript-estree`) | the only patched release (11.0.1+) is a major the parents have not adopted  |
+| `esbuild@^0.28` · `nanoid@^3.3.20` · `source-map-js@^1.2.2`                                   | patched releases under `vite` and `postcss`                                 |
+| `body-parser@^2.4` · `fast-uri@^3.1.9` · `glob@^14` · `deepmerge-ts@^8`                       | patched releases under `express`, `ajv`, `@nestjs/cli` and `@prisma/config` |
 
 `vite` was upgraded to `7.3.8` and `@nestjs/platform-express` to `11.2.9` (which pins `multer@2.5.0`). The three remaining advisories are **low** and limited to the build toolchain: `deepmerge` (`>=4.2.0`) has never published a fix, and it only arrives through `@nestjs/cli` → `fork-ts-checker-webpack-plugin`, which is used while building, not at runtime. Removing them needs `@nestjs/cli` 12, which requires TypeScript 6 and `@nestjs/schematics` 12 — a toolchain migration, not a patch. Revisit the overrides once `eslint`, `@typescript-eslint` and `@nestjs/cli` ship the patched transitives themselves.
 

@@ -30,7 +30,9 @@
     "api:build": "npm run shared:build && npm --prefix api run build",
     "demo:seed": "node scripts/seed-demo-documents.mjs",
     "stack:up": "docker compose up -d",
-    "stack:down": "docker compose down"
+    "stack:down": "docker compose down",
+    "backup:local": "bash scripts/backup/backup.sh",
+    "backup:verify": "bash scripts/backup/verify.sh"
   },
   "dependencies": {
     "clsx": "2.1.1",
