@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
-import { newTraceContext, parseTraceparent, traceContextFromHeader, traceparentHeader } from "./trace-context";
+import { describe, expect, it, vi } from "vitest";
+import { trace } from "@opentelemetry/api";
+import { activeTraceContext, newTraceContext, parseTraceparent, traceContextFromHeader, traceparentHeader } from "./trace-context";
 
 const VALID = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 
@@ -34,5 +35,32 @@ describe("W3C trace context", () => {
 
   it("creates fresh ids on each call", () => {
     expect(newTraceContext().traceId).not.toBe(newTraceContext().traceId);
+  });
+
+  it("prefers the active OpenTelemetry span so logs match exported traces", () => {
+    const getActiveSpan = vi.spyOn(trace, "getActiveSpan").mockReturnValue({
+      spanContext: () => ({
+        traceId: "119b12f27e6022a4ecdfee88c44e1059",
+        spanId: "2b6ba78b115f5a58",
+        traceFlags: 1,
+      }),
+    } as never);
+
+    expect(activeTraceContext()).toMatchObject({
+      traceId: "119b12f27e6022a4ecdfee88c44e1059",
+      spanId: "2b6ba78b115f5a58",
+      sampled: true,
+    });
+    expect(traceContextFromHeader(undefined)).toMatchObject({ traceId: "119b12f27e6022a4ecdfee88c44e1059" });
+    getActiveSpan.mockRestore();
+  });
+
+  it("ignores an empty active span context", () => {
+    const getActiveSpan = vi.spyOn(trace, "getActiveSpan").mockReturnValue({
+      spanContext: () => ({ traceId: "00000000000000000000000000000000", spanId: "0000000000000000", traceFlags: 0 }),
+    } as never);
+
+    expect(activeTraceContext()).toBeUndefined();
+    getActiveSpan.mockRestore();
   });
 });

@@ -1,3 +1,4 @@
+import { tracing } from "./tracing";
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -47,6 +48,12 @@ async function bootstrap(): Promise<void> {
   const port = Number(config.get("PORT", 4000));
   await app.listen(port, "0.0.0.0");
   logger.log(`EDAS API ready on http://localhost:${port}/api/v1`, "Bootstrap");
+
+  const shutdownTracing = (): void => {
+    void tracing?.shutdown().catch((error: unknown) => logger.error(error, "Tracing"));
+  };
+  process.once("SIGTERM", shutdownTracing);
+  process.once("SIGINT", shutdownTracing);
 }
 
 void bootstrap();

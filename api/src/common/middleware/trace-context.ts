@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { trace } from "@opentelemetry/api";
 
 export interface TraceContext {
   traceId: string;
@@ -36,8 +37,19 @@ export function newTraceContext(): TraceContext {
   };
 }
 
+export function activeTraceContext(): TraceContext | undefined {
+  const span = trace.getActiveSpan()?.spanContext();
+  if (!span || !nonZero(span.traceId) || !nonZero(span.spanId)) return undefined;
+  return {
+    traceId: span.traceId,
+    spanId: span.spanId,
+    parentSpanId: null,
+    sampled: (span.traceFlags & 0x01) === 0x01,
+  };
+}
+
 export function traceContextFromHeader(value: unknown): TraceContext {
-  return parseTraceparent(value) ?? newTraceContext();
+  return activeTraceContext() ?? parseTraceparent(value) ?? newTraceContext();
 }
 
 export function traceparentHeader(trace: TraceContext): string {
