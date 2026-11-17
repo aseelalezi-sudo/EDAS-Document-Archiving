@@ -9,6 +9,7 @@ import { AppModule } from "./app.module";
 import { correlationIdMiddleware } from "./common/middleware/correlation-id.middleware";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { TransformInterceptor } from "./common/interceptors/transform.interceptor";
+import { resolveTrustProxy } from "./common/config/trust-proxy";
 import { JsonLogger, resolveLogLevel } from "./common/logging/json.logger";
 
 async function bootstrap(): Promise<void> {
@@ -17,7 +18,7 @@ async function bootstrap(): Promise<void> {
   const logger = new JsonLogger(resolveLogLevel(config.get("LOG_LEVEL")));
   app.useLogger(logger);
 
-  app.set("trust proxy", 1);
+  app.set("trust proxy", resolveTrustProxy(config.get<string>("TRUST_PROXY")));
   app.setGlobalPrefix("api/v1");
   app.use(correlationIdMiddleware);
   app.use(

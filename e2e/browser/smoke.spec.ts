@@ -52,3 +52,22 @@ test("the language toggle switches direction and back", async ({ page }) => {
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expect(page.locator("html")).toHaveAttribute("lang", "en");
 });
+
+test("the production build ships a CSP without violations", async ({ page }) => {
+  const violations: string[] = [];
+  await page.addInitScript(() => {
+    window.addEventListener("securitypolicyviolation", (event) => {
+      const violation = event as SecurityPolicyViolationEvent;
+      console.error(`CSP_VIOLATION ${violation.violatedDirective} ${violation.blockedURI}`);
+    });
+  });
+  page.on("console", (message) => {
+    if (message.text().includes("CSP_VIOLATION")) violations.push(message.text());
+  });
+
+  await page.goto("/#/login");
+  await expect(page.locator('meta[http-equiv="Content-Security-Policy"]')).toHaveCount(1);
+  await signInAsAdmin(page);
+  await expect(page.getByText("Available documents").first()).toBeVisible();
+  expect(violations).toEqual([]);
+});

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { settledOutcome } from "./settled";
+import { settleResult, settledOutcome } from "./settled";
 
 const fulfilled = { status: "fulfilled", value: true } as const;
 const rejected = { status: "rejected", reason: new Error("denied") } as const;
@@ -23,5 +23,15 @@ describe("settledOutcome", () => {
     expect(outcome.doneIds).toEqual([]);
     expect(outcome.ok).toBe(false);
     expect(outcome.failure).toBe(rejected);
+  });
+});
+
+describe("settleResult", () => {
+  it("returns the value of a fulfilled request", () => {
+    expect(settleResult({ status: "fulfilled", value: "ok" })).toBe("ok");
+  });
+
+  it("returns null instead of throwing for a rejected request", () => {
+    expect(settleResult({ status: "rejected", reason: new Error("offline") })).toBeNull();
   });
 });

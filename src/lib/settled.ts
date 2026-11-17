@@ -9,3 +9,7 @@ export function settledOutcome<T>(ids: string[], results: PromiseSettledResult<T
   const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
   return { doneIds, failure, ok: doneIds.length === ids.length };
 }
+
+export function settleResult<T>(result: PromiseSettledResult<T>): T | null {
+  return result.status === "fulfilled" ? result.value : null;
+}

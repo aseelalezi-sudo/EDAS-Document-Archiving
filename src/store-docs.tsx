@@ -27,7 +27,7 @@ import { openDownload } from "./lib/download";
 import { domainApi } from "./lib/domain-api";
 import { logError } from "./lib/log-error";
 import { PAGE_SIZE, loadAllPages } from "./lib/pagination";
-import { settledOutcome } from "./lib/settled";
+import { settleResult, settledOutcome } from "./lib/settled";
 import {
   dateOnly,
   fileTypeFromMime,
@@ -313,24 +313,7 @@ export function DocsProvider({ children }: { children: ReactNode }) {
     let cancelled = false;
     (async () => {
       try {
-        const [
-          tree,
-          documentsPage,
-          trashPage,
-          retentionPage,
-          holdsPage,
-          taskPage,
-          approvalPage,
-          usersPage,
-          settingsPage,
-          auditPage,
-          notificationPage,
-          orgTreePage,
-          projectPage,
-          employeePage,
-          summaryPage,
-          templatesPage,
-        ] = await Promise.all([
+        const results = await Promise.allSettled([
           docsApi.foldersTree(),
           loadAllPages((page) => docsApi.listDocuments(page), { maxPages: 1 }),
           loadAllPages((page) => docsApi.trashDocuments(page)),
@@ -348,6 +331,28 @@ export function DocsProvider({ children }: { children: ReactNode }) {
           domainApi.reportSummary().catch(() => null),
           domainApi.reportTemplates().catch(() => null),
         ]);
+        const tree = settleResult(results[0]);
+        if (!tree) {
+          if (!cancelled) notifyRef.current("err.api");
+          return;
+        }
+        const emptyPage = { items: [] as never[], total: 0, truncated: true };
+        const documentsPage = settleResult(results[1]) ?? emptyPage;
+        const trashPage = settleResult(results[2]) ?? emptyPage;
+        const retentionPage = settleResult(results[3]) ?? emptyPage;
+        const holdsPage = settleResult(results[4]) ?? { items: [] as never[] };
+        const taskPage = settleResult(results[5]);
+        const approvalPage = settleResult(results[6]);
+        const usersPage = settleResult(results[7]);
+        const settingsPage = settleResult(results[8]);
+        const auditPage = settleResult(results[9]);
+        const notificationPage = settleResult(results[10]);
+        const orgTreePage = settleResult(results[11]);
+        const projectPage = settleResult(results[12]);
+        const employeePage = settleResult(results[13]);
+        const summaryPage = settleResult(results[14]);
+        const templatesPage = settleResult(results[15]);
+
         const remoteDocs = documentsPage.items.map(mapDocument);
         const aclRules = await docsApi.folderAcls().catch(() => null);
         if (cancelled) return;
