@@ -66,6 +66,15 @@ describe("hasAccess role gating", () => {
     expect(hasAccess("auditor", "/policies/legal-holds")).toBe(false);
   });
 
+  it("keeps the department dashboard off the employee and auditor menus", () => {
+    expect(hasAccess("employee", "/dashboard/department")).toBe(false);
+    expect(hasAccess("auditor", "/dashboard/department")).toBe(false);
+    expect(hasAccess("supervisor", "/dashboard/department")).toBe(true);
+    expect(hasAccess("dept_manager", "/dashboard/department")).toBe(true);
+    expect(hasAccess("archivist", "/dashboard/department")).toBe(true);
+    expect(hasAccess("system_admin", "/dashboard/department")).toBe(true);
+  });
+
   it("every role can reach the dashboard", () => {
     for (const r of ROLES) {
       expect(hasAccess(r, "/dashboard"), `${r} -> /dashboard`).toBe(true);

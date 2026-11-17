@@ -205,11 +205,11 @@ export const ROLE_ACCESS: Record<Role, string[]> = {
 const WORKFLOW_DETAIL = /^\/workflow\/(?!chains$)[^/]+$/;
 
 const ROLE_DENY: Partial<Record<Role, string[]>> = {
-  employee: ["/reports/audit-trail", "/reports/builder", "/reports/scheduled"],
+  employee: ["/dashboard/department", "/reports/audit-trail", "/reports/builder", "/reports/scheduled"],
   supervisor: ["/reports/audit-trail", "/reports/builder", "/reports/scheduled"],
   dept_manager: ["/reports/audit-trail"],
   archivist: ["/reports/audit-trail"],
-  auditor: ["/reports/scheduled"],
+  auditor: ["/dashboard/department", "/reports/scheduled"],
   system_admin: [],
 };
 
