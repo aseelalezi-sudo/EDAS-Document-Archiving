@@ -24,6 +24,8 @@
 7. تشغيل `scripts/backup/backup.sh` ثم `scripts/backup/verify.sh` قبل الترقية.
 8. اعتماد مالك الإصدار، ثم إنشاء الوسم ودفعه.
 
+تُسجَّل نتيجة كل بند من البنود أعلاه بالأدلة في `docs/release-<version>.md` (مثال: `docs/release-0.1.0.md`) قبل الاعتماد.
+
 ## الترقية
 
 ```bash
