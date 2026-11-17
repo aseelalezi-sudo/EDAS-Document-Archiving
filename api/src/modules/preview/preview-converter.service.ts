@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import { mkdir, readdir } from "node:fs/promises";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, win32 } from "node:path";
 import { pathToFileURL } from "node:url";
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -98,7 +98,7 @@ function scanOdaDirectory(): string | null {
     try {
       for (const entry of readdirSync(root, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
-        const candidate = join(root, entry.name, "ODAFileConverter.exe");
+        const candidate = win32.join(root, entry.name, "ODAFileConverter.exe");
         if (existsSync(candidate)) return candidate;
       }
     } catch {
