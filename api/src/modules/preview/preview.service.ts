@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException, Optional } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
 import type { FileObject } from "@prisma/client";
 import { API_PREFIX, type FilePreviewDto, type FilePreviewKind, type FilePreviewReason, type FilePreviewSource } from "@edas/shared";
@@ -19,6 +19,13 @@ import {
   PreviewConverterService,
 } from "./preview-converter.service";
 import { detectFileContent, isOfficePreviewType, type DetectedFile } from "./preview-file-type";
+import {
+  PreviewQueueService,
+  type PreviewJobActor,
+  type PreviewJobData,
+  type PreviewJobResult,
+  type PreviewQueueState,
+} from "./preview-queue.service";
 
 export const PREVIEW_CACHE_PREFIX = "previews/";
 const JOB_RETENTION_MS = 15 * 60 * 1000;
@@ -27,9 +34,31 @@ const AUDIT_DEDUPE_MS = 5 * 60 * 1000;
 type PreviewFile = Omit<FileObject, "versions">;
 type PreviewAccessAction = "preview.open" | "preview.stream";
 
-export interface PreviewJobActor {
-  id: string | null;
-  departmentId: string | null;
+export type { PreviewJobActor } from "./preview-queue.service";
+
+export interface PreviewJobResultInput {
+  status: "queued" | "running" | "ready" | "failed";
+  reason: FilePreviewReason | null;
+  message: string | null;
+  startedAt: number;
+  finishedAt: number | null;
+  elapsedMs: number | null;
+}
+
+export function previewJobResult(job: PreviewJobResultInput): PreviewJobResult {
+  return {
+    status: job.status === "ready" ? "ready" : "failed",
+    reason: job.reason,
+    message: job.message,
+    startedAt: job.startedAt,
+    finishedAt: job.finishedAt ?? Date.now(),
+    elapsedMs: job.elapsedMs ?? 0,
+    retryable: job.reason ? retryablePreviewReason(job.reason) : false,
+  };
+}
+
+function retryablePreviewReason(reason: FilePreviewReason): boolean {
+  return reason === "conversion_failed" || reason === "conversion_timeout" || reason === "conversion_produced_no_output";
 }
 
 interface ConversionJob {
@@ -69,7 +98,10 @@ export class PreviewService {
     private readonly audit: AuditService,
     private readonly access: AccessService,
     private readonly config: ConfigService,
-  ) {}
+    @Optional() private readonly queue?: PreviewQueueService,
+  ) {
+    this.queue?.registerProcessor((data) => this.processDistributed(data));
+  }
 
   private get maxSourceBytes(): number {
     const value = Number(this.config.get<string>("PREVIEW_MAX_SOURCE_BYTES"));
@@ -123,7 +155,7 @@ export class PreviewService {
       const key = this.cacheKey(file.id, file.checksumSha256, source === "dwg" ? "dxf" : "pdf");
       const cached = await this.storage.head(key);
       if (cached && cached.sizeBytes > 0) return;
-      this.enqueue(actor, file, detected, key, source);
+      await this.enqueue(actor, file, detected, key, source);
     } catch (error) {
       this.logger.warn(`preview prewarm failed for ${fileId}: ${(error as Error).message}`);
     }
@@ -149,6 +181,10 @@ export class PreviewService {
   async retry(principal: Principal, fileId: string): Promise<FilePreviewDto> {
     const { file } = await this.readable(principal, fileId, "preview.open");
     const key = this.jobKey(file.id, file.checksumSha256);
+    if (this.queue?.distributed) {
+      await this.queue.remove({ fileId: file.id, checksum: file.checksumSha256, source: "office" });
+      await this.queue.remove({ fileId: file.id, checksum: file.checksumSha256, source: "dwg" });
+    }
     const job = this.jobs.get(key);
     if (job && (job.status === "queued" || job.status === "running")) return this.getPreview(principal, fileId);
     if (job) {
@@ -325,14 +361,36 @@ export class PreviewService {
     return this.enqueue(actor, file, detected, key, "dwg");
   }
 
-  private enqueue(
+  private async enqueue(
     actor: PreviewJobActor,
     file: PreviewFile,
     detected: DetectedFile,
     cacheKey: string,
     source: "office" | "dwg",
-  ): FilePreviewDto {
-    const key = this.jobKey(file.id, file.checksumSha256);
+  ): Promise<FilePreviewDto> {
+    const data: PreviewJobData = {
+      key: this.jobKey(file.id, file.checksumSha256),
+      fileId: file.id,
+      checksum: file.checksumSha256,
+      detected,
+      cacheKey,
+      source,
+      actor: { id: actor.id, departmentId: actor.departmentId },
+    };
+    if (this.queue?.distributed) {
+      try {
+        const state = await this.queue.enqueue(data);
+        return this.convertingFromState(data, state, file);
+      } catch (error) {
+        this.logger.warn(`preview queue unavailable, using the in-process converter: ${(error as Error).message}`);
+      }
+    }
+    return this.enqueueLocal(data, file);
+  }
+
+  private enqueueLocal(data: PreviewJobData, file: PreviewFile): FilePreviewDto {
+    const { actor, detected, cacheKey, source } = data;
+    const key = data.key;
     const base = {
       fileId: file.id,
       fileName: file.originalName,
@@ -368,7 +426,7 @@ export class PreviewService {
     return this.converting(base, job, source);
   }
 
-  private async runJob(job: ConversionJob, file: PreviewFile, source: "office" | "dwg"): Promise<void> {
+  private async runJob(job: ConversionJob, file: PreviewFile, source: "office" | "dwg"): Promise<PreviewJobResult> {
     await this.acquireSlot();
     job.status = "running";
     job.startedAt = Date.now();
@@ -427,6 +485,27 @@ export class PreviewService {
       this.releaseSlot();
       if (workDir) await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
     }
+    return previewJobResult(job);
+  }
+
+  private async processDistributed(data: PreviewJobData): Promise<PreviewJobResult> {
+    const file = await this.files.fileForJob(data.fileId);
+    if (!file) throw new Error("conversion_failed|the stored file disappeared before conversion");
+    const job: ConversionJob = {
+      key: data.key,
+      fileId: data.fileId,
+      checksum: data.checksum,
+      detected: data.detected,
+      cacheKey: data.cacheKey,
+      status: "running",
+      startedAt: Date.now(),
+      finishedAt: null,
+      elapsedMs: null,
+      reason: null,
+      message: null,
+      actor: data.actor,
+    };
+    return this.runJob(job, file, data.source);
   }
 
   private reasonFor(error: unknown): FilePreviewReason {
@@ -588,6 +667,30 @@ export class PreviewService {
       startedAt: null,
       elapsedMs: null,
     };
+  }
+
+  private convertingFromState(data: PreviewJobData, state: PreviewQueueState, file: PreviewFile): FilePreviewDto {
+    const base = {
+      fileId: file.id,
+      fileName: file.originalName,
+      mimeType: file.mimeType,
+      expiresInSeconds: this.storage.presignExpiresSeconds,
+    };
+    const job: ConversionJob = {
+      key: data.key,
+      fileId: data.fileId,
+      checksum: data.checksum,
+      detected: data.detected,
+      cacheKey: data.cacheKey,
+      status: state.status,
+      startedAt: state.startedAt,
+      finishedAt: state.finishedAt,
+      elapsedMs: state.elapsedMs,
+      reason: state.reason,
+      message: state.message,
+      actor: data.actor,
+    };
+    return this.converting(base, job, data.source);
   }
 
   private converting(

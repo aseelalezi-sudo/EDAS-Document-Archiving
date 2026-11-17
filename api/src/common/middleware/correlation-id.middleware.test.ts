@@ -24,7 +24,14 @@ describe("correlationIdMiddleware", () => {
 
     expect(request).toMatchObject({ correlationId: "caller-42" });
     expect(headersOut["x-correlation-id"]).toBe("caller-42");
-    expect(seen()).toMatchObject({ correlationId: "caller-42", method: "GET", path: "/api/v1/documents" });
+    expect(headersOut["x-trace-id"]).toMatch(/^[0-9a-f]{32}$/);
+    expect(headersOut.traceparent).toMatch(/^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/);
+    expect(seen()).toMatchObject({
+      correlationId: "caller-42",
+      traceId: headersOut["x-trace-id"],
+      method: "GET",
+      path: "/api/v1/documents",
+    });
   });
 
   it("generates an id when the caller sends none", () => {
@@ -33,5 +40,15 @@ describe("correlationIdMiddleware", () => {
     expect(request).toMatchObject({ correlationId: expect.any(String) });
     expect(headersOut["x-correlation-id"]).toBe(request.correlationId);
     expect(seen()?.correlationId).toBe(headersOut["x-correlation-id"]);
+    expect(seen()?.traceId).toBe(headersOut["x-trace-id"]);
+  });
+
+  it("continues a valid traceparent instead of starting a new trace", () => {
+    const traceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+    const { headersOut, seen } = run({ traceparent });
+
+    expect(headersOut["x-trace-id"]).toBe("4bf92f3577b34da6a3ce929d0e0e4736");
+    expect(headersOut.traceparent).toMatch(/^00-4bf92f3577b34da6a3ce929d0e0e4736-[0-9a-f]{16}-01$/);
+    expect(seen()).toMatchObject({ traceId: "4bf92f3577b34da6a3ce929d0e0e4736" });
   });
 });

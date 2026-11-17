@@ -2,6 +2,8 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 export interface LogContext {
   correlationId: string;
+  traceId?: string;
+  spanId?: string;
   userId?: string;
   method?: string;
   path?: string;

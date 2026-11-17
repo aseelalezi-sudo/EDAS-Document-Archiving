@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim AS deps
+FROM node:22-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS deps
 WORKDIR /app
 # Prisma needs OpenSSL to detect the query-engine target on Debian.
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
@@ -16,7 +16,7 @@ RUN api/node_modules/.bin/tsc -p packages/shared/tsconfig.json
 RUN cd api && npm run build
 RUN cd api && npm prune --omit=dev
 
-FROM node:22-bookworm-slim AS runtime
+FROM node:22-bookworm-slim@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d AS runtime
 # LibreOffice converts Office documents to PDF for previews; the fonts cover
 # Arabic (Noto) and Latin (Liberation/DejaVu) so documents render faithfully.
 RUN apt-get update && apt-get install -y --no-install-recommends \

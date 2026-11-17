@@ -14,7 +14,7 @@ import {
   ConverterUnavailableError,
 } from "./preview-converter.service";
 import type { PreviewConverterService } from "./preview-converter.service";
-import { PreviewService } from "./preview.service";
+import { PreviewService, previewJobResult } from "./preview.service";
 
 const PRINCIPAL = { sub: "user-1", role: "EMPLOYEE" };
 const ACTOR = { id: "user-1", departmentId: "dept-1" };
@@ -60,7 +60,9 @@ function file(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function build(options: { values?: Record<string, string>; head?: Buffer; file?: Record<string, unknown> } = {}) {
+function build(
+  options: { values?: Record<string, string>; head?: Buffer; file?: Record<string, unknown>; queue?: Record<string, unknown> } = {},
+) {
   const values = options.values ?? {};
   const stored = file(options.file);
   const files = {
@@ -94,6 +96,7 @@ function build(options: { values?: Record<string, string>; head?: Buffer; file?:
     audit as unknown as AuditService,
     access as never,
     config as never,
+    options.queue as never,
   );
   return { service, files, storage, converter, audit, access, stored };
 }
@@ -109,6 +112,101 @@ function producedPdf(bytes = "%PDF-1.7 produced") {
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(WORK_DIRS.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
+});
+
+describe("PreviewService distributed queue", () => {
+  it("parks an Office conversion on Redis instead of converting in the request process", async () => {
+    const queue = {
+      distributed: true,
+      registerProcessor: vi.fn(),
+      enqueue: vi.fn().mockResolvedValue({
+        status: "queued",
+        startedAt: 1000,
+        finishedAt: null,
+        elapsedMs: null,
+        reason: null,
+        message: null,
+      }),
+      remove: vi.fn(),
+    };
+    const { service } = build({ queue });
+
+    const preview = await service.getPreview({ sub: "user-1" } as never, "file-1");
+
+    expect(preview).toMatchObject({ status: "converting", source: "office", fileId: "file-1" });
+    expect(queue.registerProcessor).toHaveBeenCalledOnce();
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ fileId: "file-1", checksum: "ABC123", source: "office" }),
+    );
+  });
+
+  it("removes Redis jobs for both possible sources before retrying", async () => {
+    const queue = {
+      distributed: true,
+      registerProcessor: vi.fn(),
+      enqueue: vi.fn().mockResolvedValue({
+        status: "queued",
+        startedAt: 1000,
+        finishedAt: null,
+        elapsedMs: null,
+        reason: null,
+        message: null,
+      }),
+      remove: vi.fn().mockResolvedValue(undefined),
+    };
+    const { service } = build({ queue });
+
+    await service.retry({ sub: "user-1" } as never, "file-1");
+
+    expect(queue.remove).toHaveBeenCalledWith(expect.objectContaining({ source: "office" }));
+    expect(queue.remove).toHaveBeenCalledWith(expect.objectContaining({ source: "dwg" }));
+  });
+
+  it("falls back to the local converter when Redis rejects the enqueue", async () => {
+    const queue = {
+      distributed: true,
+      registerProcessor: vi.fn(),
+      enqueue: vi.fn().mockRejectedValue(new Error("redis offline")),
+      remove: vi.fn(),
+    };
+    const { service } = build({ queue });
+    const local = { status: "converting", fileId: "file-1" };
+    vi.spyOn(service as unknown as { enqueueLocal: () => unknown }, "enqueueLocal").mockReturnValue(local);
+
+    await expect(service.getPreview({ sub: "user-1" } as never, "file-1")).resolves.toMatchObject(local);
+  });
+
+  it("runs a distributed job through the same audited converter path", async () => {
+    const queue = { distributed: true, registerProcessor: vi.fn(), enqueue: vi.fn(), remove: vi.fn() };
+    const { service, stored } = build({ queue });
+    const result = { status: "ready", reason: null, message: null, startedAt: 1, finishedAt: 2, elapsedMs: 1, retryable: false };
+    vi.spyOn(service as unknown as { runJob: () => Promise<unknown> }, "runJob").mockResolvedValue(result);
+
+    await expect(
+      (service as unknown as { processDistributed: (value: unknown) => Promise<unknown> }).processDistributed({
+        key: "file-1:abc123",
+        fileId: "file-1",
+        checksum: "abc123",
+        detected: { type: "docx", mimeType: "application/docx", extension: "docx" },
+        cacheKey: "previews/file-1/abc123.pdf",
+        source: "office",
+        actor: { id: "user-1", departmentId: "dept-1" },
+      }),
+    ).resolves.toBe(result);
+    expect(stored.id).toBe("file-1");
+  });
+
+  it("rejects a distributed job when its stored file disappeared", async () => {
+    const queue = { distributed: true, registerProcessor: vi.fn(), enqueue: vi.fn(), remove: vi.fn() };
+    const { service, files } = build({ queue });
+    files.fileForJob.mockResolvedValue(null);
+
+    await expect(
+      (service as unknown as { processDistributed: (value: unknown) => Promise<unknown> }).processDistributed({
+        fileId: "file-1",
+      }),
+    ).rejects.toThrow("stored file disappeared");
+  });
 });
 
 describe("PreviewService limits", () => {
@@ -947,5 +1045,36 @@ describe("PreviewService disk hygiene", () => {
     await vi.waitFor(async () => {
       await expect(stat(workDir)).rejects.toThrow();
     });
+  });
+});
+
+describe("previewJobResult", () => {
+  it("fills a missing finish timestamp and elapsed time", () => {
+    const before = Date.now();
+    const result = previewJobResult({
+      status: "failed",
+      reason: "conversion_failed",
+      message: "boom",
+      startedAt: 10,
+      finishedAt: null,
+      elapsedMs: null,
+    });
+
+    expect(result.finishedAt).toBeGreaterThanOrEqual(before);
+    expect(result.elapsedMs).toBe(0);
+    expect(result.retryable).toBe(true);
+  });
+
+  it("keeps a ready result without a retry reason", () => {
+    expect(
+      previewJobResult({
+        status: "ready",
+        reason: null,
+        message: null,
+        startedAt: 10,
+        finishedAt: 20,
+        elapsedMs: 10,
+      }),
+    ).toMatchObject({ status: "ready", retryable: false, elapsedMs: 10 });
   });
 });

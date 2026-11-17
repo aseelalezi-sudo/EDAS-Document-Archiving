@@ -28,12 +28,22 @@ describe("JsonLogger", () => {
   it("attaches the correlation context of the current request", () => {
     const { logger, parse } = capture();
 
-    runWithLogContext({ correlationId: "corr-9", userId: "user-3", method: "GET", path: "/api/v1/documents" }, () =>
-      logger.log("fetched", "DocumentsService"),
+    runWithLogContext(
+      {
+        correlationId: "corr-9",
+        traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+        spanId: "00f067aa0ba902b7",
+        userId: "user-3",
+        method: "GET",
+        path: "/api/v1/documents",
+      },
+      () => logger.log("fetched", "DocumentsService"),
     );
 
     expect(parse()[0]).toMatchObject({
       correlationId: "corr-9",
+      traceId: "4bf92f3577b34da6a3ce929d0e0e4736",
+      spanId: "00f067aa0ba902b7",
       userId: "user-3",
       method: "GET",
       path: "/api/v1/documents",
