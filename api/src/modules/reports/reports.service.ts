@@ -6,13 +6,7 @@ import { textBidi, type PdfKitDocLike } from "bidi-shaper/pdfkit";
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { DocumentStatus, NotificationLevel, Prisma, ReportCadence, UserRole } from "@prisma/client";
 import { API_PREFIX } from "@edas/shared";
-import {
-  AccessService,
-  departmentMatch,
-  documentDepartmentFilter,
-  type Actor,
-  type DepartmentMatch,
-} from "../../common/access/access.service";
+import { AccessService, departmentMatch, type Actor, type DepartmentMatch } from "../../common/access/access.service";
 import type { Principal } from "../../common/auth/principal";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { StorageService } from "../../common/storage/storage.service";
@@ -294,8 +288,9 @@ export class ReportsService {
     const actor = await this.access.resolveActor(principal);
     const global = this.access.isGlobal(actor);
     const departmentId = global ? undefined : departmentMatch(actor.departmentId);
-    const documentWhere: Prisma.DocumentWhereInput = global ? {} : documentDepartmentFilter(actor.departmentId);
-    const documentScope = global ? {} : { document: documentDepartmentFilter(actor.departmentId) };
+    const visibility = global ? undefined : await this.access.documentVisibilityFilter(actor);
+    const documentWhere: Prisma.DocumentWhereInput = visibility ?? {};
+    const documentScope = visibility ? { document: visibility } : {};
 
     const [documents, byStatus, byClassification, pendingApprovals, overdueRetention, activeHolds, users, openTasks] = await Promise.all([
       this.prisma.document.count({ where: documentWhere }),
@@ -496,9 +491,10 @@ export class ReportsService {
   ) {
     const departmentId: DepartmentMatch =
       contentDepartmentId ?? (this.access.isGlobal(actor) ? undefined : departmentMatch(actor.departmentId));
+    const visibility = this.access.isGlobal(actor) ? undefined : await this.access.documentVisibilityFilter(actor);
     let table: ReportTable;
     try {
-      table = await this.buildReport(run.reportType, departmentId);
+      table = await this.buildReport(run.reportType, departmentId, visibility);
     } catch (error) {
       await this.prisma.reportRun.update({ where: { id: run.id }, data: { status: "failed", completedAt: new Date() } });
       throw error;
@@ -572,9 +568,17 @@ export class ReportsService {
     );
   }
 
-  private async buildReport(reportType: string, departmentId: DepartmentMatch): Promise<ReportTable> {
-    const documentWhere: Prisma.DocumentWhereInput = departmentId ? { departmentId } : {};
+  private async buildReport(
+    reportType: string,
+    departmentId: DepartmentMatch,
+    visibility?: Prisma.DocumentWhereInput,
+  ): Promise<ReportTable> {
+    const documentWhere: Prisma.DocumentWhereInput = {
+      ...(departmentId ? { departmentId } : {}),
+      ...(visibility ? { AND: [visibility] } : {}),
+    };
     const auditWhere: Prisma.AuditEventWhereInput = departmentId ? { departmentId } : {};
+    const hasDocumentScope = Object.keys(documentWhere).length > 0;
 
     switch (reportType) {
       case "rpt-1": {
@@ -658,7 +662,7 @@ export class ReportsService {
       }
       case "rpt-4": {
         const instances = await this.prisma.approvalInstance.findMany({
-          where: { completedAt: { not: null }, ...(departmentId ? { document: { departmentId } } : {}) },
+          where: { completedAt: { not: null }, ...(hasDocumentScope ? { document: documentWhere } : {}) },
           orderBy: { completedAt: "desc" },
           take: 2000,
           select: {
@@ -687,7 +691,7 @@ export class ReportsService {
       }
       case "rpt-5": {
         const items = await this.prisma.retentionItem.findMany({
-          where: departmentId ? { document: { departmentId } } : {},
+          where: hasDocumentScope ? { document: documentWhere } : {},
           orderBy: { dueAt: "asc" },
           take: 2000,
           select: {
@@ -739,7 +743,7 @@ export class ReportsService {
         throw new BadRequestException("Error trends are recorded in the browser and cannot be generated on the server");
       case "rpt-8": {
         const holds = await this.prisma.legalHold.findMany({
-          where: departmentId ? { documents: { some: { document: { departmentId } } } } : {},
+          where: hasDocumentScope ? { documents: { some: { document: documentWhere } } } : {},
           orderBy: { placedAt: "desc" },
           take: 2000,
           select: {

@@ -33,3 +33,9 @@ export function capabilitiesFor(role: UserRole): AclAction[] {
 export function can(role: UserRole, action: AclAction): boolean {
   return (ROLE_CAPABILITIES[role] ?? []).includes(action);
 }
+
+export const ACL_MANAGER_ROLES: readonly UserRole[] = ["SYSTEM_ADMIN", "ARCHIVIST"];
+
+export function canManageAcl(role: UserRole): boolean {
+  return ACL_MANAGER_ROLES.includes(role);
+}

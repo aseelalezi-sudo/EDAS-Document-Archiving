@@ -69,6 +69,7 @@ const EXACT_REASONS: Record<string, string> = {
   "Only a system administrator can change organisation-wide report schedules": "مدير النظام وحده يعدّل جداول التقارير على مستوى الهيئة",
   "Only a system administrator can create a top-level department": "مدير النظام وحده ينشئ إدارة عليا بلا إدارة أم",
   "Out of department scope": "خارج نطاق إدارتك",
+  "Out of scope": "خارج نطاق وصولك",
   "You can only create departments inside your own department tree": "تنشئ الإدارات داخل شجرة إدارتك فقط",
   "No active approval chain configured": "لا سلسلة موافقة فعّالة مُعدّة",
   "Missing authorization code": "رمز التفويض مفقود",

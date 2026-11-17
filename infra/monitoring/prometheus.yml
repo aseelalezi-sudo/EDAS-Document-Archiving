@@ -5,13 +5,17 @@ global:
 rule_files:
   - alerts.yml
 
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
 scrape_configs:
   - job_name: edas-api
     metrics_path: /api/v1/metrics
     scheme: http
     authorization:
       type: Bearer
-      credentials_file: /etc/prometheus/metrics-token
+      credentials_file: /run/secrets/metrics_token
     static_configs:
-      - targets:
-          - edas-api:4000
+      - targets: ["api:4000"]

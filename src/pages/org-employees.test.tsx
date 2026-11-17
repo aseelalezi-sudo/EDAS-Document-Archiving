@@ -128,7 +128,6 @@ function renderPage(url = "/org/employees") {
 function openRowMenu(index = 0) {
   fireEvent.click(screen.getAllByRole("button", { name: t("g.rowOptions") })[index]);
 }
-
 function selectWithValue(scope: HTMLElement, value: string) {
   const select = Array.from(scope.querySelectorAll("select")).find((element) =>
     Array.from(element.options).some((option) => option.value === value),
@@ -415,6 +414,78 @@ describe("org employees", () => {
 
     await waitFor(() => expect(mocks.api.deleteEmployee).toHaveBeenCalledWith("emp-2"));
     await waitFor(() => expect(app.toast).toHaveBeenCalledWith({ type: "success", title: "تم حذف الموظف", message: "خالد العمري" }));
+  });
+
+  it("edits department, filtered section and employment status offline", () => {
+    const store = mockStore();
+    mockApp();
+    renderPage();
+
+    openRowMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: t("g.edit") }));
+    const dialog = screen.getByRole("dialog", { name: "تعديل — أمل السبيعي" });
+
+    fireEvent.change(selectWithValue(dialog, "legal"), { target: { value: "it" } });
+    const sectionSelect = selectWithValue(dialog, "it-inf");
+    expect(within(sectionSelect).queryByRole("option", { name: "الحسابات" })).toBeNull();
+    fireEvent.change(sectionSelect, { target: { value: "it-inf" } });
+    expect(within(dialog).getAllByText("البنية التحتية").length).toBeGreaterThan(0);
+
+    fireEvent.change(selectWithValue(dialog, "leave"), { target: { value: "leave" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: t("g.save") }));
+
+    expect(store.employees.update).toHaveBeenCalledWith("emp-1", {
+      name: "أمل السبيعي",
+      jobTitle: "مديرة القسم",
+      deptId: "it",
+      sectionId: "it-inf",
+      email: "amal@edas.gov",
+      phone: "+966 500000001",
+      status: "leave",
+    });
+  });
+
+  it("hides the leave status in API mode and widens sections without a department", () => {
+    mocks.config.useApi = true;
+    mockStore();
+    mockApp();
+
+    render(
+      <MemoryRouter initialEntries={[{ pathname: "/org/employees", state: { editEmployeeId: "emp-2" } }]}>
+        <Routes>
+          <Route path="/org/employees" element={<Employees />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "تعديل — خالد العمري" });
+    expect(within(dialog).queryByRole("option", { name: "إجازة" })).toBeNull();
+    expect(within(dialog).getByText("غير مرتبط")).toBeInTheDocument();
+
+    const department = selectWithValue(dialog, "it");
+    expect(within(selectWithValue(dialog, "it-inf")).queryByRole("option", { name: "الحسابات" })).toBeNull();
+    fireEvent.change(department, { target: { value: "" } });
+    expect(within(dialog).getByRole("option", { name: "الحسابات" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("option", { name: "البنية التحتية" })).toBeInTheDocument();
+  });
+
+  it("renders the edit modal labels in English", () => {
+    mockStore();
+    mockApp("system_admin", "en");
+    renderPage();
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Row options" })[0]);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Edit" }));
+    expect(screen.queryByRole("menuitem", { name: t("g.edit") })).toBeNull();
+
+    const dialog = screen.getByRole("dialog", { name: "Edit — أمل السبيعي" });
+    expect(within(dialog).getByText("Full name")).toBeInTheDocument();
+    expect(within(dialog).getByText("Job title")).toBeInTheDocument();
+    expect(within(dialog).getByText("Employment status")).toBeInTheDocument();
+    expect(within(dialog).getByText("User account")).toBeInTheDocument();
+    expect(within(dialog).getByRole("option", { name: "On leave" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("option", { name: "No department" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("option", { name: "— No section —" })).toBeInTheDocument();
   });
 
   it("renders English labels", () => {

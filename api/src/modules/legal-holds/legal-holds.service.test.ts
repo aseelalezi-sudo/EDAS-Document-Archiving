@@ -32,6 +32,11 @@ function buildService(actor: { id: string; departmentId: string | null; role: st
   const access = {
     resolveActor: vi.fn().mockResolvedValue(actor),
     isGlobal: vi.fn().mockReturnValue(isGlobal),
+    documentVisibilityFilter: vi.fn().mockImplementation(async (candidate: { departmentId: string | null }) =>
+      candidate.departmentId
+        ? { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null, departmentId: candidate.departmentId }] }
+        : undefined,
+    ),
     assertDepartmentScope: vi.fn(
       async (_actor: unknown, document: { departmentId: string | null; folderId?: string | null; ownerId?: string | null }) => {
         if (isGlobal) return;
@@ -88,7 +93,12 @@ describe("LegalHoldsService department scope", () => {
         where: {
           documents: {
             some: {
-              document: { OR: [{ departmentId: "dept-finance" }, { departmentId: null, folder: { departmentId: "dept-finance" } }] },
+              document: {
+                OR: [
+                  { folderId: { in: ["folder-visible"] } },
+                  { folderId: null, departmentId: "dept-finance" },
+                ],
+              },
             },
           },
         },
@@ -120,9 +130,17 @@ describe("LegalHoldsService department scope", () => {
 
     await expect(service.release({ sub: "user-mgr" } as never, "hold-1")).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.legalHold.updateMany).not.toHaveBeenCalled();
-    expect(prisma.document.count).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ NOT: expect.anything() }) }),
-    );
+    expect(prisma.document.count).toHaveBeenCalledWith({
+      where: {
+        holds: { some: { holdId: "hold-1" } },
+        NOT: {
+          OR: [
+            { departmentId: "dept-finance" },
+            { departmentId: null, folder: { departmentId: "dept-finance" } },
+          ],
+        },
+      },
+    });
   });
 
   it("lets a department manager release a hold that stays inside their department", async () => {

@@ -156,6 +156,7 @@ model Section {
   users      User[]
   employees  Employee[]
   documents  Document[]
+  folders    Folder[]
 }
 
 model Employee {
@@ -272,6 +273,7 @@ model Folder {
   aclInherit   Boolean     @default(true)
   parentId     String?     @db.Uuid
   departmentId String?     @db.Uuid
+  sectionId    String?     @db.Uuid
   projectId    String?     @db.Uuid
   ownerId      String?     @db.Uuid
   createdAt    DateTime    @default(now())
@@ -280,12 +282,16 @@ model Folder {
   parent     Folder?     @relation("FolderTree", fields: [parentId], references: [id])
   children   Folder[]    @relation("FolderTree")
   department Department? @relation(fields: [departmentId], references: [id])
+  section    Section?    @relation(fields: [sectionId], references: [id], onDelete: SetNull)
   project    Project?    @relation(fields: [projectId], references: [id])
   acl        AclRule[]
   documents  Document[]
 
   @@index([parentId])
   @@index([path])
+  @@index([departmentId])
+  @@index([sectionId])
+  @@index([ownerId])
 }
 
 model FileObject {

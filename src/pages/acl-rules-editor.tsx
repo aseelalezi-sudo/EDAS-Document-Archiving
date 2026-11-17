@@ -4,6 +4,8 @@ import { useApp } from "../store";
 import { Button, Select, Badge, Checkbox, ConfirmDialog, EmptyState } from "../components/ui";
 import { useDocsStore } from "../store-docs";
 import type { ACLRule, PermAction } from "../types";
+import { canManageAcl } from "@edas/shared";
+import { roleToApi } from "../lib/role-bridge";
 export function ACLRulesEditor({ folderId }: { folderId: string }) {
   const { lang, role, toast } = useApp();
   const {
@@ -21,7 +23,7 @@ export function ACLRulesEditor({ folderId }: { folderId: string }) {
     users: userStore,
   } = useDocsStore();
   const L = (ar: string, en: string) => (lang === "en" ? en : ar);
-  const canManage = role === "system_admin" || role === "archivist";
+  const canManage = canManageAcl(roleToApi(role));
   const aclFailed = aclFailedFolders.includes(folderId);
   const [retrying, setRetrying] = useState(false);
   const retry = async () => {
@@ -223,7 +225,11 @@ export function ACLRulesEditor({ folderId }: { folderId: string }) {
                     {PERMS.map((p) => (
                       <td key={p.key} className="p-2.5">
                         {canManage ? (
-                          <Checkbox checked={r.permissions.includes(p.key)} onChange={() => toggleRulePermission(folderId, r.id, p.key)} />
+                          <Checkbox
+                            checked={r.permissions.includes(p.key)}
+                            onChange={() => toggleRulePermission(folderId, r.id, p.key)}
+                            label={p.label}
+                          />
                         ) : r.permissions.includes(p.key) ? (
                           <Check className="mx-auto h-4 w-4 text-emerald-500" />
                         ) : (

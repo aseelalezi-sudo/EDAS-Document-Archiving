@@ -93,7 +93,7 @@ export function Users() {
       nameEn: form.name,
       username: form.username,
       email: form.email || `${form.username}@edas.gov`,
-      empNo: `EMP-${Math.floor(2000 + Math.random() * 9000)}`,
+      empNo: `EMP-${Math.floor(1000 + Math.random() * 9000)}`,
       jobTitle: L("موظف", "Employee"),
       jobTitleEn: "Employee",
       deptId: form.deptId,

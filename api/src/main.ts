@@ -1,3 +1,4 @@
+import { tracing } from "./tracing";
 import "reflect-metadata";
 import { ValidationPipe } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
@@ -9,6 +10,7 @@ import { AppModule } from "./app.module";
 import { correlationIdMiddleware } from "./common/middleware/correlation-id.middleware";
 import { HttpExceptionFilter } from "./common/filters/http-exception.filter";
 import { TransformInterceptor } from "./common/interceptors/transform.interceptor";
+import { resolveTrustProxy } from "./common/config/trust-proxy";
 import { JsonLogger, resolveLogLevel } from "./common/logging/json.logger";
 
 async function bootstrap(): Promise<void> {
@@ -17,7 +19,7 @@ async function bootstrap(): Promise<void> {
   const logger = new JsonLogger(resolveLogLevel(config.get("LOG_LEVEL")));
   app.useLogger(logger);
 
-  app.set("trust proxy", 1);
+  app.set("trust proxy", resolveTrustProxy(config.get<string>("TRUST_PROXY")));
   app.setGlobalPrefix("api/v1");
   app.use(correlationIdMiddleware);
   app.use(
@@ -46,6 +48,12 @@ async function bootstrap(): Promise<void> {
   const port = Number(config.get("PORT", 4000));
   await app.listen(port, "0.0.0.0");
   logger.log(`EDAS API ready on http://localhost:${port}/api/v1`, "Bootstrap");
+
+  const shutdownTracing = (): void => {
+    void tracing?.shutdown().catch((error: unknown) => logger.error(error, "Tracing"));
+  };
+  process.once("SIGTERM", shutdownTracing);
+  process.once("SIGINT", shutdownTracing);
 }
 
 void bootstrap();

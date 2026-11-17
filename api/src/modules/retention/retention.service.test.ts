@@ -107,6 +107,11 @@ function buildService() {
     assert: vi.fn().mockResolvedValue({ id: "user-1", departmentId: null, role: "ARCHIVIST" }),
     resolveActor: vi.fn().mockResolvedValue({ id: "user-1", departmentId: null, role: "ARCHIVIST" }),
     isGlobal: vi.fn().mockReturnValue(true),
+    documentVisibilityFilter: vi.fn().mockImplementation(async (candidate: { departmentId: string | null }) =>
+      candidate.departmentId
+        ? { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null, departmentId: candidate.departmentId }] }
+        : undefined,
+    ),
   };
   const audit = {
     record: vi.fn(async (input: { actorId: string | null; actorName: string | null; detail: unknown }) => ({

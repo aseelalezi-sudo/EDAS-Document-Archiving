@@ -38,7 +38,8 @@ export class LegalHoldsService {
     const where: Prisma.LegalHoldWhereInput = {};
     if (query.status) where.status = query.status;
     if (!this.access.isGlobal(actor)) {
-      where.documents = { some: { document: documentDepartmentFilter(actor.departmentId) } };
+      const visibility = await this.access.documentVisibilityFilter(actor);
+      if (visibility) where.documents = { some: { document: visibility } };
     }
 
     const [items, total] = await this.prisma.$transaction([
@@ -226,16 +227,19 @@ export class LegalHoldsService {
 
   private async assertVisible(actor: Actor, hold: HoldWithRelations) {
     if (this.access.isGlobal(actor)) return;
+    const visibility = await this.access.documentVisibilityFilter(actor);
+    if (!visibility) return;
     const scoped = await this.prisma.document.count({
-      where: { ...documentDepartmentFilter(actor.departmentId), holds: { some: { holdId: hold.id } } },
+      where: { AND: [visibility], holds: { some: { holdId: hold.id } } },
     });
     if (scoped === 0) throw new ForbiddenException("Out of department scope");
   }
 
   private async assertWholeHold(actor: Actor, holdId: string) {
     if (this.access.isGlobal(actor)) return;
+    const department = documentDepartmentFilter(actor.departmentId);
     const outside = await this.prisma.document.count({
-      where: { holds: { some: { holdId } }, NOT: documentDepartmentFilter(actor.departmentId) },
+      where: { holds: { some: { holdId } }, NOT: department },
     });
     if (outside > 0) {
       throw new ForbiddenException("This hold covers documents outside your department; only a system administrator can release it");

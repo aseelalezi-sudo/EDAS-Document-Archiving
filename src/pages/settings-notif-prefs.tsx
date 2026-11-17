@@ -159,7 +159,11 @@ export function NotifPrefs() {
                 <tr key={event.key} className="border-b border-ink-100 text-center dark:border-ink-800/60">
                   <td className="p-3 text-start text-ink-700 dark:text-ink-200">{lang === "en" ? event.en : event.ar}</td>
                   <td className="p-3">
-                    <Checkbox checked={pref.inapp} onChange={(v) => setChannel(event.key, "inapp", v)} />
+                    <Checkbox
+                      checked={pref.inapp}
+                      onChange={(v) => setChannel(event.key, "inapp", v)}
+                      label={`${lang === "en" ? event.en : event.ar} — ${L("داخل التطبيق", "In-app")}`}
+                    />
                   </td>
                   <td className="p-3">
                     <span

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { AclAction, ApprovalStatus, DocumentStatus, NotificationLevel, Prisma, UserRole } from "@prisma/client";
-import { AccessService, documentDepartmentFilter } from "../../common/access/access.service";
+import { AccessService } from "../../common/access/access.service";
 import type { Principal } from "../../common/auth/principal";
 import { advisoryLock, documentHoldLock } from "../../common/db/advisory-lock";
 import { isUniqueViolation } from "../../common/db/prisma-errors";
@@ -132,7 +132,8 @@ export class ApprovalsService {
     if (query.status) where.status = query.status;
     if (query.documentId) where.documentId = query.documentId;
     if (!this.access.isGlobal(actor)) {
-      where.document = documentDepartmentFilter(actor.departmentId);
+      const visibility = await this.access.documentVisibilityFilter(actor);
+      if (visibility) where.document = visibility;
     }
 
     const [items, total] = await this.prisma.$transaction([
@@ -153,7 +154,8 @@ export class ApprovalsService {
     const actor = await this.access.resolveActor(principal);
     const where: Prisma.ApprovalInstanceWhereInput = { status: ApprovalStatus.PENDING };
     if (!this.access.isGlobal(actor)) {
-      where.document = documentDepartmentFilter(actor.departmentId);
+      const visibility = await this.access.documentVisibilityFilter(actor);
+      if (visibility) where.document = visibility;
     }
 
     const instances = await this.prisma.approvalInstance.findMany({

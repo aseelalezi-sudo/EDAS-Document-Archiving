@@ -5,7 +5,7 @@ import { useApp } from "../store";
 import { cn, Button, Modal } from "./ui";
 /* ---------------- Toasts ---------------- */
 export function ToastHost() {
-  const { toasts, dismissToast } = useApp();
+  const { toasts, dismissToast, t } = useApp();
   const icons = {
     success: (
       <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-400">
@@ -40,7 +40,11 @@ export function ToastHost() {
             <p className="text-sm font-bold text-ink-800 dark:text-ink-100">{tt.title}</p>
             {tt.message && <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">{tt.message}</p>}
           </div>
-          <button onClick={() => dismissToast(tt.id)} className="text-ink-400 transition-colors hover:text-ink-700">
+          <button
+            onClick={() => dismissToast(tt.id)}
+            aria-label={t("g.close")}
+            className="text-ink-400 transition-colors hover:text-ink-700"
+          >
             <ChevronLeft className="h-4 w-4 flip-x" />
           </button>
         </div>

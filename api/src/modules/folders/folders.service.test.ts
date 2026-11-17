@@ -1,4 +1,4 @@
-import { BadRequestException, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 import { FoldersService } from "./folders.service";
 
@@ -28,6 +28,7 @@ function buildService(
     assert: vi.fn().mockResolvedValue(actor),
     isGlobal: vi.fn().mockReturnValue(global),
     listScope: vi.fn().mockResolvedValue({ actor, departmentId: scopeDepartment }),
+    visibleFolderIds: vi.fn().mockImplementation(async () => (global ? null : actor.departmentId ? ["folder-1", "folder-2"] : [])),
   };
   const audit = { record: vi.fn().mockResolvedValue({ id: "event-1" }) };
   return { service: new FoldersService(prisma as never, access as never, audit as never), prisma, access, audit };
@@ -41,7 +42,7 @@ describe("FoldersService.tree", () => {
 
     expect(access.listScope).toHaveBeenCalledWith(PRINCIPAL);
     expect(prisma.folder.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { departmentId: "dept-1" }, orderBy: { name: "asc" } }),
+      expect.objectContaining({ where: { id: { in: ["folder-1", "folder-2"] } }, orderBy: { name: "asc" } }),
     );
     expect(result).toMatchObject({ departmentId: "dept-1", actorId: "user-1" });
     expect(result.items).toHaveLength(2);
@@ -65,7 +66,7 @@ describe("FoldersService.tree", () => {
 
     await service.tree(PRINCIPAL);
 
-    expect(prisma.folder.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { departmentId: { in: [] } } }));
+    expect(prisma.folder.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: { in: [] } } }));
   });
 });
 
@@ -127,7 +128,10 @@ describe("FoldersService.create", () => {
 
     await service.create(PRINCIPAL, { name: "عقود 2026", type: "PROJECT", scope: "PROJECT", parentId: "parent-1" } as never);
 
-    expect(prisma.folder.findUnique).toHaveBeenCalledWith({ where: { id: "parent-1" }, select: { path: true } });
+    expect(prisma.folder.findUnique).toHaveBeenCalledWith({
+      where: { id: "parent-1" },
+      select: { path: true, departmentId: true, sectionId: true },
+    });
     expect(prisma.folder.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ path: expect.stringMatching(/^\/parent\/[0-9a-f-]{36}\/$/), type: "PROJECT" }),
@@ -178,7 +182,7 @@ describe("FoldersService.create", () => {
 
 describe("FoldersService.update", () => {
   it("writes the editable fields and audits the patch", async () => {
-    const { service, prisma, access, audit } = buildService();
+    const { service, prisma, access, audit } = buildService({ id: "user-1", departmentId: "dept-1", role: "ARCHIVIST" });
 
     await service.update(PRINCIPAL, "folder-1", { name: "عقود 2026", scope: "PROJECT", aclInherit: false } as never);
 
@@ -264,7 +268,7 @@ describe("FoldersService.getAcl", () => {
 
 describe("FoldersService.putAcl", () => {
   it("replaces the rules, defaults the effect to ALLOW and audits the count", async () => {
-    const { service, prisma, access, audit } = buildService();
+    const { service, prisma, access, audit } = buildService({ id: "user-1", departmentId: "dept-1", role: "ARCHIVIST" });
 
     await expect(
       service.putAcl(PRINCIPAL, "folder-1", {
@@ -294,8 +298,15 @@ describe("FoldersService.putAcl", () => {
     );
   });
 
-  it("reports a missing folder without touching the rules", async () => {
+  it("rejects an account that may edit but may not manage ACLs", async () => {
     const { service, prisma } = buildService();
+
+    await expect(service.putAcl(PRINCIPAL, "folder-1", { rules: [] } as never)).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.aclRule.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing folder without touching the rules", async () => {
+    const { service, prisma } = buildService({ id: "user-1", departmentId: "dept-1", role: "ARCHIVIST" });
     prisma.folder.findUnique.mockResolvedValue(null);
 
     await expect(service.putAcl(PRINCIPAL, "folder-1", { rules: [] } as never)).rejects.toBeInstanceOf(NotFoundException);
@@ -323,5 +334,68 @@ describe("FoldersService.listAcls", () => {
 
     await expect(service.listAcls(PRINCIPAL)).resolves.toEqual([]);
     expect(prisma.aclRule.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("FoldersService.create scope anchors", () => {
+  it("records the creator as owner and anchors the folder to the actor section", async () => {
+    const { service, prisma } = buildService({ id: "user-1", departmentId: "dept-1", sectionId: "section-1", role: "EMPLOYEE" });
+
+    await service.create(PRINCIPAL, { name: "خاص", scope: "PRIVATE" } as never);
+
+    expect(prisma.folder.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ ownerId: "user-1", sectionId: "section-1", departmentId: "dept-1", scope: "PRIVATE" }),
+      }),
+    );
+  });
+
+  it("lets a global actor choose the section and inherits it from the parent when present", async () => {
+    const { service, prisma } = buildService({ id: "user-2", departmentId: null, role: "SYSTEM_ADMIN" }, true);
+    prisma.folder.findUnique.mockResolvedValue({
+      id: "parent-1",
+      path: "/parent/",
+      departmentId: "dept-2",
+      sectionId: "section-2",
+    });
+
+    await service.create(PRINCIPAL, { name: "مجلد", scope: "SECTION", parentId: "parent-1", sectionId: "section-9" } as never);
+
+    expect(prisma.folder.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ departmentId: "dept-2", sectionId: "section-2", ownerId: "user-2" }),
+      }),
+    );
+  });
+
+  it("never lets a scoped actor place a folder in another section", async () => {
+    const { service, prisma } = buildService({ id: "user-1", departmentId: "dept-1", sectionId: "section-1", role: "EMPLOYEE" });
+
+    await service.create(PRINCIPAL, { name: "مجلد", scope: "SECTION", sectionId: "section-9" } as never);
+
+    expect(prisma.folder.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ sectionId: "section-1" }) }),
+    );
+  });
+});
+
+describe("FoldersService.update scope guard", () => {
+  it("does not let an employee widen a folder scope", async () => {
+    const { service, prisma } = buildService({ id: "user-1", departmentId: "dept-1", role: "EMPLOYEE" });
+
+    await expect(service.update(PRINCIPAL, "folder-1", { scope: "PUBLIC" } as never)).rejects.toThrow(
+      "Missing permission: MANAGE_SCOPE",
+    );
+    expect(prisma.folder.update).not.toHaveBeenCalled();
+  });
+
+  it("still lets an employee rename a folder", async () => {
+    const { service, prisma } = buildService({ id: "user-1", departmentId: "dept-1", role: "EMPLOYEE" });
+
+    await service.update(PRINCIPAL, "folder-1", { name: "اسم جديد" } as never);
+
+    expect(prisma.folder.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ name: "اسم جديد", scope: undefined }) }),
+    );
   });
 });

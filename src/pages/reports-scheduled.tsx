@@ -271,7 +271,7 @@ export function ScheduledReports() {
               fileId: run.fileId,
             };
           })
-        : [],
+        : runLog,
     );
   };
 

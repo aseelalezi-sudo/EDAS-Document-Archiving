@@ -1,10 +1,16 @@
 import {
+  Children,
+  Fragment,
+  cloneElement,
   forwardRef,
+  isValidElement,
   useEffect,
+  useId,
   useRef,
   useState,
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
+  type ReactElement,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
@@ -176,6 +182,32 @@ export function Card({
 }
 
 /* ---------------- Inputs ---------------- */
+const LABELABLE_TAGS = new Set(["input", "select", "textarea", "button"]);
+
+function isLabelableElement(node: ReactNode): node is ReactElement<{ id?: string }> {
+  if (!isValidElement(node)) return false;
+  if (node.type === Input || node.type === Select || node.type === Textarea) return true;
+  return typeof node.type === "string" && LABELABLE_TAGS.has(node.type);
+}
+
+// Gives an id to the first labelable control inside a Field so the <label> can
+// point at it with htmlFor and assistive tech gets an accessible name.
+function linkLabel(node: ReactNode, generatedId: string, state: { id?: string }): ReactNode {
+  if (state.id || !isValidElement(node)) return node;
+  if (node.type === Fragment) {
+    const { children } = node.props as { children?: ReactNode };
+    return cloneElement(
+      node,
+      undefined,
+      Children.map(children, (child) => linkLabel(child, generatedId, state)),
+    );
+  }
+  if (!isLabelableElement(node)) return node;
+  const id = node.props.id ?? generatedId;
+  state.id = id;
+  return node.props.id ? node : cloneElement(node, { id });
+}
+
 export function Field({
   label,
   children,
@@ -190,15 +222,18 @@ export function Field({
   className?: string;
 }) {
   const { t } = useApp();
+  const generatedId = useId();
+  const link: { id?: string } = {};
+  const fieldChildren = label ? Children.map(children, (child) => linkLabel(child, generatedId, link)) : children;
   return (
     <div className={cn("space-y-1.5", className)}>
       {label && (
-        <label className="flex items-center gap-1 text-[13px] font-semibold text-ink-700 dark:text-ink-200">
+        <label htmlFor={link.id} className="flex items-center gap-1 text-[13px] font-semibold text-ink-700 dark:text-ink-200">
           {label}
           {required && <span className="text-rose-500">*</span>}
         </label>
       )}
-      {children}
+      {fieldChildren}
       {hint && <p className="text-xs text-ink-400">{hint}</p>}
       {!label && required && <span className="sr-only">{t("g.required")}</span>}
     </div>
@@ -246,12 +281,23 @@ export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSel
   );
 });
 
-export function Checkbox({ checked, onChange, className }: { checked: boolean; onChange: (v: boolean) => void; className?: string }) {
+export function Checkbox({
+  checked,
+  onChange,
+  className,
+  label,
+}: {
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  className?: string;
+  label?: string;
+}) {
   return (
     <button
       type="button"
       role="checkbox"
       aria-checked={checked}
+      aria-label={label}
       onClick={() => onChange(!checked)}
       className={cn(
         "flex h-5 w-5 items-center justify-center rounded-md border-2 transition-all active:scale-90",

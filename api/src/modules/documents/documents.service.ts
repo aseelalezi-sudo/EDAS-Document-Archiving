@@ -3,7 +3,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { AclAction, Document, DocumentStatus, Prisma } from "@prisma/client";
 import { advisoryLock, documentHoldLock } from "../../common/db/advisory-lock";
 import { isUniqueViolation } from "../../common/db/prisma-errors";
-import { AccessService, documentDepartmentFilter, type Actor } from "../../common/access/access.service";
+import { AccessService, type Actor } from "../../common/access/access.service";
 import type { Principal } from "../../common/auth/principal";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { StorageService } from "../../common/storage/storage.service";
@@ -69,8 +69,9 @@ export class DocumentsService {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 25;
     const { actor, departmentId } = await this.access.listScope(principal);
+    const visibleFolders = departmentId === undefined ? null : await this.access.visibleFolderIds(actor);
 
-    const where = this.scopeWhere(departmentId, query);
+    const where = this.scopeWhere(departmentId, query, visibleFolders);
     where.deletedAt = null;
 
     return this.paginate(where, page, pageSize, departmentId ?? actor.departmentId);
@@ -80,8 +81,9 @@ export class DocumentsService {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 25;
     const { actor, departmentId } = await this.access.listScope(principal);
+    const visibleFolders = departmentId === undefined ? null : await this.access.visibleFolderIds(actor);
 
-    const where = this.scopeWhere(departmentId, query);
+    const where = this.scopeWhere(departmentId, query, visibleFolders);
     where.deletedAt = { not: null };
 
     return this.paginate(where, page, pageSize, departmentId ?? actor.departmentId);
@@ -655,12 +657,23 @@ export class DocumentsService {
     return this.detail(id);
   }
 
-  private scopeWhere(departmentId: string | null | undefined, query: ListDocumentsQuery): Prisma.DocumentWhereInput {
+  private scopeWhere(
+    departmentId: string | null | undefined,
+    query: ListDocumentsQuery,
+    visibleFolders: string[] | null,
+  ): Prisma.DocumentWhereInput {
     const where: Prisma.DocumentWhereInput = {};
     if (departmentId === undefined) {
       if (query.departmentId) where.departmentId = query.departmentId;
     } else {
-      where.AND = [documentDepartmentFilter(departmentId)];
+      where.AND = [
+        {
+          OR: [
+            { folderId: { in: visibleFolders ?? [] } },
+            { folderId: null, departmentId: departmentId ?? "" },
+          ],
+        },
+      ];
     }
     if (query.folderId) where.folderId = query.folderId;
     if (query.status) where.status = query.status;

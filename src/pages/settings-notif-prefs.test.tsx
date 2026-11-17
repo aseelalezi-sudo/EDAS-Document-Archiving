@@ -33,6 +33,7 @@ describe("notification preferences", () => {
 
     expect(screen.getByText("إرسال وثيقة")).toBeInTheDocument();
     expect(screen.getByText("تنبيه أمني")).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "إرسال وثيقة — داخل التطبيق" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ملخص أسبوعي" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByDisplayValue("21:30")).toBeInTheDocument();
     expect(screen.getByDisplayValue("06:30")).toBeInTheDocument();

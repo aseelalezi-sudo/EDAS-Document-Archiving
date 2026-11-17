@@ -61,6 +61,15 @@ export function hasOwnRules(folderId: string, acls: Record<string, ACLRule[]>): 
   return (acls[folderId] ?? []).length > 0;
 }
 
+const ROLE_CEILING: Record<Role, PermAction[]> = {
+  employee: ["view", "edit", "download"],
+  supervisor: ["view", "edit", "download"],
+  dept_manager: ["view", "edit", "delete", "download"],
+  archivist: ["view", "edit", "download"],
+  auditor: ["view"],
+  system_admin: ["view", "edit", "delete", "download"],
+};
+
 export interface CanAccessArgs {
   action: PermAction;
   folderId: string;
@@ -86,6 +95,7 @@ export function canAccess({ action, folderId, docDeptId, role, userDeptId, userI
   if (rules.some((r) => r.effect === "deny" && r.permissions.includes(action) && matchesRule(r))) return false;
 
   if (role === "system_admin") return true;
+  if (!ROLE_CEILING[role].includes(action)) return false;
   if (role === "auditor") return action === "view";
   if (role === "archivist") return action !== "delete";
 

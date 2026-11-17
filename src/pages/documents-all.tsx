@@ -385,7 +385,11 @@ export function AllDocuments() {
         <div className="relative min-w-48 flex-1">
           <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-400" />
           {q && (
-            <button onClick={() => setQ("")} className="absolute end-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700">
+            <button
+              onClick={() => setQ("")}
+              aria-label={t("g.clear")}
+              className="absolute end-3 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700"
+            >
               <X className="h-3.5 w-3.5" />
             </button>
           )}
@@ -396,7 +400,7 @@ export function AllDocuments() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        <Select className="w-36" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <Select className="w-36" value={status} onChange={(e) => setStatus(e.target.value)} aria-label={t("g.status")}>
           <option value="all">
             {t("g.all")} - {t("g.status")}
           </option>
@@ -442,9 +446,9 @@ export function AllDocuments() {
           value={view}
           onChange={setView}
           options={[
-            { value: "list", label: "", icon: <ListIcon className="h-4 w-4" /> },
-            { value: "grid", label: "", icon: <LayoutGrid className="h-4 w-4" /> },
-            { value: "kanban", label: "", icon: <Columns3 className="h-4 w-4" /> },
+            { value: "list", label: "", icon: <ListIcon className="h-4 w-4" />, ariaLabel: lang === "en" ? "List view" : "عرض القائمة" },
+            { value: "grid", label: "", icon: <LayoutGrid className="h-4 w-4" />, ariaLabel: lang === "en" ? "Grid view" : "عرض الشبكة" },
+            { value: "kanban", label: "", icon: <Columns3 className="h-4 w-4" />, ariaLabel: lang === "en" ? "Board view" : "عرض اللوحة" },
           ]}
         />
       </Toolbar>
@@ -456,7 +460,7 @@ export function AllDocuments() {
           {q && (
             <span className="flex items-center gap-1.5 rounded-full border border-navy-200 bg-navy-50 px-2.5 py-1 text-xs font-semibold text-navy-700 dark:border-navy-800 dark:bg-navy-900/40 dark:text-navy-200">
               🔍 {q}
-              <button onClick={() => setQ("")}>
+              <button onClick={() => setQ("")} aria-label={t("g.clear")}>
                 <X className="h-3 w-3" />
               </button>
             </span>
@@ -464,7 +468,7 @@ export function AllDocuments() {
           {status !== "all" && (
             <span className="flex items-center gap-1.5 rounded-full border border-navy-200 bg-navy-50 px-2.5 py-1 text-xs font-semibold text-navy-700 dark:border-navy-800 dark:bg-navy-900/40 dark:text-navy-200">
               {t(STATUS_META[status as keyof typeof STATUS_META]?.key ?? status)}
-              <button onClick={() => setStatus("all")}>
+              <button onClick={() => setStatus("all")} aria-label={t("g.clear")}>
                 <X className="h-3 w-3" />
               </button>
             </span>

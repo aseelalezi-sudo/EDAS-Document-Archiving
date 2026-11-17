@@ -24,9 +24,9 @@ Always verify changes with:
   `npm run shared:build` (the root `api:*` scripts do this automatically); the API links it via
   `file:../packages/shared`, so re-run `npm run api:install` after changing its `package.json`.
 - Dev API: `cd api && npm run start:dev` (needs Postgres + Keycloak).
-- Local stack: `docker compose up -d` (PostgreSQL + Keycloak + MinIO + API) from the repo root.
+- Local stack: `docker compose up -d` (PostgreSQL + Keycloak + MinIO + Redis + API) from the repo root.
   `POSTGRES_PORT` moves the database host port, `MINIO_IMAGE` / `AWS_CLI_IMAGE` override the storage
-  images (defaults: `bitnamilegacy/minio:latest`, `amazon/aws-cli:latest`; upstream `minio/minio` is no
+  images (defaults are digest-pinned `bitnamilegacy/minio` and `amazon/aws-cli`; upstream `minio/minio` is no
   longer pullable). The API service signs browser-facing S3 URLs with `MINIO_PUBLIC_ENDPOINT`
   (`localhost:9000` in compose) while talking to MinIO internally, so presigned uploads/downloads stay
   reachable; rebuild the API image (`docker compose build api`) after changing `api/src`.
@@ -41,6 +41,14 @@ Always verify changes with:
   run it with `cd api && npm run test:coverage` (the root `npm run api:test:coverage` builds `@edas/shared` first).
   The SPA gate lives in the root `vitest.config.ts` (74 / 67 / 69 / 76); the SPA job in CI runs
   `npm run test:coverage`, so the threshold is enforced on every push, not just locally.
+- Folder access is `Folder.scope` (`PUBLIC` / `DEPARTMENT` / `SECTION` / `PRIVATE`) intersected with
+  role capabilities and folder ACLs. New folders store `ownerId` (creator) and `sectionId`; legacy
+  ownerless `PRIVATE` folders fall back to department scope. `DENY` always wins and `ALLOW` never
+  exceeds the role ceiling. Changing scope or `aclInherit` requires `MANAGE_SCOPE` (system admin or
+  archivist). Do not loosen these rules without a product decision.
+- Backup/restore: `scripts/backup/backup.sh` and `scripts/backup/verify.sh`; the runbook and RPO/RTO
+  targets live in `docs/backup-restore.md`. Release/version policy is in `docs/release-process.md`
+  and `CHANGELOG.md`; the version is not tagged without explicit approval.
 - Repair documents whose stored `departmentId` drifted from their folder with
   `cd api && npm run build && npm run maintenance:reconcile-departments` (dry run; `-- --apply` writes the
   fix and signs a `document.reconcile_department` audit event per document inside the same transaction).
@@ -90,15 +98,23 @@ Always verify changes with:
   `preview` (PDF/image/text/DXF inline; Office via LibreOffice, shipped in the API image, and DWG
   via the optional ODA File Converter; cached per file+checksum under
   `previews/`, prewarmed in the background when a document is created or a version is added,
-  disable with `PREVIEW_PREWARM=off`),
+  disable with `PREVIEW_PREWARM=off`; setting `REDIS_URL` moves the conversion queue to
+  Redis/BullMQ for multi-replica deployments, otherwise it stays in-process),
   `approvals` (chains / instances / decisions), `retention` (policies / items), `legal-holds`,
-`notifications`, `notification-templates` (seeded catalog, admin CRUD/reset), `tasks`, `reports` (schedules / runs / summary; runs export CSV, Excel (SpreadsheetML) or an RTL PDF (`pdfkit` + `bidi-shaper`, Amiri font under `api/assets`) to object storage and
-serve `/reports/runs/:id/download`), `report-templates`, `roles` (per-role capability overrides stored in `RolePolicy`; `/roles` GET for admin/manager/auditor, PATCH/DELETE for system admin), `saved-searches`, `settings`, `audit` (hash-chained), `metrics` (Prometheus text at `/api/v1/metrics`; `METRICS_TOKEN` required to expose it in production). Mutating
-endpoints must write an audit event.
+  `notifications`, `notification-templates` (seeded catalog, admin CRUD/reset), `tasks`, `reports` (schedules / runs / summary; runs export CSV, Excel (SpreadsheetML) or an RTL PDF (`pdfkit` + `bidi-shaper`, Amiri font under `api/assets`) to object storage and
+  serve `/reports/runs/:id/download`), `report-templates`, `roles` (per-role capability overrides stored in `RolePolicy`; `/roles` GET for admin/manager/auditor, PATCH/DELETE for system admin), `saved-searches`, `settings`, `audit` (hash-chained), `metrics` (Prometheus text at `/api/v1/metrics`; `METRICS_TOKEN` required to expose it in production). Mutating
+  endpoints must write an audit event.
 - Root ESLint/tsconfig exclude `api/`; the API has its own `eslint.config.mjs` and `tsconfig.json`.
-- Prometheus scrape config and alert rules live in `infra/monitoring/` (no extra compose service);
-  validate edits with `promtool check config` / `check rules` before committing.
-- No git history baseline yet; make small, focused changes.
+- The observability stack lives behind `docker compose --profile observability` (Prometheus,
+  Alertmanager, Loki, Promtail, Grafana, OpenTelemetry Collector, Jaeger). Configs are in
+  `infra/monitoring/`; validate Prometheus with `promtool`, Alertmanager with `amtool`, Loki with
+  `-verify-config`, and the collector with `validate` before committing. The API enables
+  OpenTelemetry only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; keep log `traceId` tied to the active span.
+- Git history exists on `master`; keep changes small and focused, with a test beside every fix.
+- Production SPA builds inject a CSP `<meta>` (`src/lib/csp.ts`); extend its tests when a new browser
+  resource origin is needed. `VITE_REQUIRE_API=true` fails a deployed build that lacks the API config.
+- ACL replacement is limited to `SYSTEM_ADMIN` and `ARCHIVIST` through `canManageAcl` in
+  `packages/shared`; do not widen it without an explicit product decision.
 - Node tooling note: `eslint-plugin-jsx-a11y` declares a peer range up to ESLint 9 while
   the repo uses ESLint 10, so dependency installs may need `--legacy-peer-deps`. When
   doing so, keep `@testing-library/dom` pinned (it is a peer dep that npm drops in that mode).
@@ -114,5 +130,5 @@ endpoints must write an audit event.
   for S3, and boots the built API on port 4210.
 - The browser smoke test is `e2e/browser/*.spec.ts` (`npm run test:browser`). Playwright builds the
   SPA with empty `VITE_` variables, serves the bundle on port 4173 and drives Chromium through the
-  offline demo: sign-in, dashboard, documents list, a document page and the preview route, plus the
-  language toggle. The same test runs in CI.
+  offline demo: sign-in, dashboard, documents list, a document page, the preview route, the language
+  toggle and a CSP-violation guard. The same test runs in CI.

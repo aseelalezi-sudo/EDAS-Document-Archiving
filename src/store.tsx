@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { translations, type Lang } from "./i18n";
 import { usePersistentState } from "./utils/persist";
 import { config } from "./config";
@@ -120,14 +120,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
     };
   }, [lang]);
 
-  const toast = (tt: Omit<Toast, "id">) => {
+  const toast = useCallback((tt: Omit<Toast, "id">) => {
     const id = Date.now() + Math.random();
     setToasts((prev) => [...prev, { ...tt, id }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((x) => x.id !== id));
     }, 4200);
-  };
-  const dismissToast = (id: number) => setToasts((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+  const dismissToast = useCallback((id: number) => setToasts((prev) => prev.filter((x) => x.id !== id)), []);
 
   const toastRef = useRef(toast);
   toastRef.current = toast;

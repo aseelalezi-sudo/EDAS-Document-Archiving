@@ -1,8 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { AppProvider } from "../store";
+import { AppProvider, useApp } from "../store";
 import { DocsProvider } from "../store-docs";
 import { ApiError } from "../lib/api-client";
 import type { StorageIntegrityDto, StoragePurgeResultDto } from "@edas/shared";
@@ -11,6 +11,9 @@ import { Maintenance } from "./admin-maintenance";
 const storageIntegrity = vi.fn();
 const verifyFile = vi.fn();
 const purgeUnreferencedFiles = vi.fn();
+const health = vi.fn();
+const orgTree = vi.fn();
+const users = vi.fn();
 
 vi.mock("../config", () => ({ config: { apiBaseUrl: "http://localhost:4210/api/v1", oidc: {}, useApi: true } }));
 vi.mock("../lib/domain-api", () => {
@@ -19,6 +22,9 @@ vi.mock("../lib/domain-api", () => {
     storageIntegrity: () => storageIntegrity(),
     verifyFile: (id: string) => verifyFile(id),
     purgeUnreferencedFiles: (body: unknown) => purgeUnreferencedFiles(body),
+    health: () => health(),
+    orgTree: () => orgTree(),
+    users: () => users(),
   };
   return { domainApi: new Proxy(api, { get: (target, key: string) => target[key] ?? stub }) };
 });
@@ -57,6 +63,22 @@ const wrapper = ({ children }: { children: ReactNode }) => (
   <MemoryRouter>
     <AppProvider>
       <DocsProvider>{children}</DocsProvider>
+    </AppProvider>
+  </MemoryRouter>
+);
+
+function ToastProbe() {
+  const { toasts } = useApp();
+  return <div data-testid="toasts">{toasts.map((tt) => tt.title).join("|")}</div>;
+}
+
+const wrapperWithToasts = ({ children }: { children: ReactNode }) => (
+  <MemoryRouter>
+    <AppProvider>
+      <DocsProvider>
+        {children}
+        <ToastProbe />
+      </DocsProvider>
     </AppProvider>
   </MemoryRouter>
 );
@@ -384,5 +406,145 @@ describe("Maintenance debris cleanup", () => {
 
     expect(await screen.findByText("تفتقد صلاحية تنظيف الملفات")).toBeInTheDocument();
     expect(screen.queryByText(/خطة الحذف في الدلو/)).toBeNull();
+  });
+});
+
+describe("Maintenance connection and local data", () => {
+  it("measures the API latency and flags an unreachable server", async () => {
+    health.mockResolvedValue({ status: "ok" });
+    const view = render(<Maintenance />, { wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: /فحص الاتصال/ }));
+
+    expect(await screen.findByText("يعمل")).toBeInTheDocument();
+    expect(screen.getByText(/^\d+ ms$/)).toBeInTheDocument();
+    expect(screen.queryByText("لم يُجرَ بعد")).toBeNull();
+    expect(screen.getByRole("button", { name: /فحص الاتصال/ })).toBeEnabled();
+    view.unmount();
+
+    health.mockRejectedValue(new Error("down"));
+    render(<Maintenance />, { wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: /فحص الاتصال/ }));
+
+    expect(await screen.findByText("تعذّر الوصول")).toBeInTheDocument();
+    expect(screen.getByText("فشل")).toBeInTheDocument();
+    expect(screen.queryByText(/^\d+ ms$/)).toBeNull();
+  });
+
+  it("reloads the directory and the users from the server", async () => {
+    orgTree.mockResolvedValue({ items: [], meta: { total: 0 } });
+    users.mockResolvedValue({ items: [], meta: { total: 0 } });
+    render(<Maintenance />, { wrapper: wrapperWithToasts });
+
+    fireEvent.click(screen.getByRole("button", { name: /إعادة تحميل دليل الهيكل والمستخدمين/ }));
+
+    await waitFor(() => expect(screen.getByTestId("toasts")).toHaveTextContent("تم تحديث البيانات من الخادم"));
+    expect(orgTree).toHaveBeenCalledTimes(1);
+    expect(users).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: /إعادة تحميل دليل الهيكل والمستخدمين/ })).toBeEnabled();
+  });
+
+  it("reports a failed directory reload", async () => {
+    orgTree.mockResolvedValue({ items: [], meta: { total: 0 } });
+    users.mockRejectedValue(new ApiError(500, "INTERNAL", "boom"));
+    render(<Maintenance />, { wrapper: wrapperWithToasts });
+
+    fireEvent.click(screen.getByRole("button", { name: /إعادة تحميل دليل الهيكل والمستخدمين/ }));
+
+    await waitFor(() => expect(screen.getByTestId("toasts")).toHaveTextContent("تعذّر تنفيذ العملية على الخادم"));
+    expect(screen.getByRole("button", { name: /إعادة تحميل دليل الهيكل والمستخدمين/ })).toBeEnabled();
+  });
+
+  it("shows the server reason when one file cannot be verified and stays usable", async () => {
+    storageIntegrity.mockResolvedValue(inventory());
+    verifyFile.mockRejectedValue(new ApiError(403, "FORBIDDEN", "تعذّر التحقق"));
+    render(<Maintenance />, { wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: /جرد التخزين/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /تحقق البصمة/ }));
+
+    expect(await screen.findByText("تعذّر التحقق")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /تحقق البصمة/ })).toBeEnabled();
+  });
+
+  it("marks a matching checksum on an unreferenced file", async () => {
+    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    storageIntegrity.mockResolvedValue(debrisInventory());
+    verifyFile.mockResolvedValue({
+      id: "file-9",
+      storageKey: "documents/2026/loose.pdf",
+      originalName: "loose.pdf",
+      mimeType: "application/pdf",
+      ok: true,
+      reason: null,
+      declaredSizeBytes: 2048,
+      storedSizeBytes: 2048,
+      expectedChecksum: "b".repeat(64),
+      actualChecksum: "b".repeat(64),
+      verifiedAt: "2026-11-05T08:05:00.000Z",
+    });
+    render(<Maintenance />, { wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: /جرد التخزين/ }));
+    const checks = await screen.findAllByRole("button", { name: /تحقق البصمة/ });
+    fireEvent.click(checks[checks.length - 1]!);
+
+    expect(await screen.findByText("البصمة مطابقة")).toBeInTheDocument();
+    expect(verifyFile).toHaveBeenCalledWith("file-9");
+  });
+
+  it("clears the local footprint only after the confirmation modal", async () => {
+    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    render(<Maintenance />, { wrapper: wrapperWithToasts });
+
+    fireEvent.click(screen.getByRole("button", { name: "مسح البيانات المحلية" }));
+    expect(screen.getByRole("dialog", { name: "مسح البيانات المحلية" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(localStorage.getItem("edas.v1.role")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "مسح البيانات المحلية" }));
+    const firstDialog = screen.getByRole("dialog", { name: "مسح البيانات المحلية" });
+    fireEvent.click(within(firstDialog).getByRole("button", { name: "إلغاء" }));
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(localStorage.getItem("edas.v1.role")).not.toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "مسح البيانات المحلية" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "مسح البيانات المحلية" })).getByRole("button", { name: "مسح" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(localStorage.getItem("edas.v1.role")).toBeNull();
+    expect(screen.getByTestId("toasts")).toHaveTextContent("تم مسح البيانات المحلية");
+    expect(screen.getByRole("button", { name: "مسح البيانات المحلية" })).toBeDisabled();
+  });
+});
+
+describe("Maintenance purge plan controls", () => {
+  beforeEach(() => {
+    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    storageIntegrity.mockResolvedValue(debrisInventory());
+    purgeUnreferencedFiles.mockResolvedValue(purgePlan());
+  });
+
+  it("cancels the armed delete and hides the plan on demand", async () => {
+    render(<Maintenance />, { wrapper });
+
+    fireEvent.click(screen.getByRole("button", { name: /جرد التخزين/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /معاينة خطة التنظيف/ }));
+    await screen.findByText(/خطة الحذف في الدلو/);
+
+    fireEvent.click(screen.getByRole("button", { name: /حذف ما في الخطة/ }));
+    expect(screen.getByRole("button", { name: /تأكيد الحذف النهائي/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "إلغاء" }));
+    expect(screen.queryByRole("button", { name: /تأكيد الحذف النهائي/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /حذف ما في الخطة/ })).toBeInTheDocument();
+    expect(purgeUnreferencedFiles).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /إخفاء الخطة/ }));
+    expect(screen.queryByText(/خطة الحذف في الدلو/)).toBeNull();
+    expect(screen.getByRole("button", { name: /معاينة خطة التنظيف/ })).toBeInTheDocument();
   });
 });

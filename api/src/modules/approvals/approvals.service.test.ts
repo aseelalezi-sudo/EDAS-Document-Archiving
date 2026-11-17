@@ -131,6 +131,11 @@ function buildService(actor: Actor = SUPERVISOR) {
     assert: vi.fn().mockResolvedValue(actor),
     assertDepartmentScope: vi.fn().mockResolvedValue(undefined),
     isGlobal: vi.fn().mockReturnValue(actor.role === "SYSTEM_ADMIN"),
+    documentVisibilityFilter: vi.fn().mockImplementation(async (candidate: { departmentId: string | null }) =>
+      candidate.departmentId
+        ? { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null, departmentId: candidate.departmentId }] }
+        : undefined,
+    ),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const notifications = { pushToRole: vi.fn().mockResolvedValue(undefined), push: vi.fn().mockResolvedValue(undefined) };
@@ -291,7 +296,12 @@ describe("ApprovalsService queries", () => {
         skip: 10,
         take: 10,
         where: expect.objectContaining({
-          document: { OR: [{ departmentId: "dept-fin" }, { departmentId: null, folder: { departmentId: "dept-fin" } }] },
+          document: {
+            OR: [
+              { folderId: { in: ["folder-visible"] } },
+              { folderId: null, departmentId: "dept-fin" },
+            ],
+          },
         }),
       }),
     );

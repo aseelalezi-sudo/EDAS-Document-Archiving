@@ -94,6 +94,8 @@ export class JsonLogger implements LoggerService {
     const ctx = currentLogContext();
     if (ctx) {
       record.correlationId = ctx.correlationId;
+      if (ctx.traceId) record.traceId = ctx.traceId;
+      if (ctx.spanId) record.spanId = ctx.spanId;
       if (ctx.userId) record.userId = ctx.userId;
       if (ctx.method) record.method = ctx.method;
       if (ctx.route) record.route = ctx.route;

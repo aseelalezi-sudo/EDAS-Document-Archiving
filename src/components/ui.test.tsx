@@ -202,6 +202,47 @@ describe("form fields", () => {
     expect(screen.getByText("حد أقصى 120 حرفًا")).toBeInTheDocument();
   });
 
+  it("points the label at the wrapped control", () => {
+    render(
+      <Field label="العنوان">
+        <Input defaultValue="عقد" />
+      </Field>,
+      { wrapper },
+    );
+
+    expect(screen.getByLabelText("العنوان")).toHaveValue("عقد");
+  });
+
+  it("names selects and textareas wrapped in a field", () => {
+    render(
+      <div>
+        <Field label="التصنيف">
+          <Select defaultValue="a">
+            <option value="a">أ</option>
+          </Select>
+        </Field>
+        <Field label="الوصف">
+          <Textarea defaultValue="نص" />
+        </Field>
+      </div>,
+      { wrapper },
+    );
+
+    expect(screen.getByLabelText("التصنيف")).toHaveValue("a");
+    expect(screen.getByLabelText("الوصف")).toHaveValue("نص");
+  });
+
+  it("keeps a control's explicit id", () => {
+    render(
+      <Field label="العنوان">
+        <Input id="title-field" defaultValue="عقد" />
+      </Field>,
+      { wrapper },
+    );
+
+    expect(screen.getByLabelText("العنوان")).toHaveAttribute("id", "title-field");
+  });
+
   it("announces the requirement to screen readers when there is no visible label", () => {
     render(
       <Field required>
@@ -238,6 +279,12 @@ describe("form fields", () => {
     expect(screen.getByPlaceholderText("ملاحظات").tagName).toBe("TEXTAREA");
     expect(screen.getByRole("combobox")).toHaveValue("a");
     expect(screen.getByRole("option", { name: "ب" })).toBeInTheDocument();
+  });
+
+  it("gives a labelled checkbox an accessible name", () => {
+    render(<Checkbox checked={false} onChange={vi.fn()} label="اختيار الكل" />, { wrapper });
+
+    expect(screen.getByRole("checkbox", { name: "اختيار الكل" })).toBeInTheDocument();
   });
 
   it("toggles a checkbox and a switch", () => {
