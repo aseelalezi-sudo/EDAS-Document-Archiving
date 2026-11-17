@@ -24,6 +24,7 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 - Documents listing and the folder tree now derive visibility from effective folder permissions instead of a department-only filter.
 - `TRUST_PROXY` is configurable instead of hard-coded.
 - The department dashboard (`/dashboard/department`) is no longer reachable by the `employee` and `auditor` roles; both now see the access-denied state.
+- Local backup output (`backups/`, produced by `npm run backup:local`) is git-ignored so dumps are not committed by accident.
 
 ### Fixed
 

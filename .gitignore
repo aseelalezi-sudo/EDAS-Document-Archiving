@@ -40,6 +40,9 @@ playwright-report/
 test-results/
 blob-report/
 
+# Local backups (scripts/backup/backup.sh output)
+backups/
+
 # Local-only files (deliberately not published)
 AUDIT.md
 opencode.json
