@@ -16,11 +16,14 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 - OpenTelemetry tracing for HTTP/Express, W3C trace context, and log `traceId` correlation.
 - Optional observability profile with Prometheus, Alertmanager, Loki, Promtail, Grafana, the OpenTelemetry Collector, and Jaeger.
 - Release process, rollback checklist, and versioning policy.
+- Accessible form labelling: `Field` now associates its `<label>` with the first labelable control via `htmlFor`/`id`, `Checkbox` accepts an accessible name, and `DataTable`/ACL/notification checkboxes carry labels.
+- Accessible names for icon-only controls (sidebar collapse/expand, toast dismiss, library details panel, sort/filter menus, clear-search buttons) and a shared `g.selectAll` / `g.selectRow` / `nav.collapseSidebar` / `nav.expandSidebar` message set.
 
 ### Changed
 
 - Documents listing and the folder tree now derive visibility from effective folder permissions instead of a department-only filter.
 - `TRUST_PROXY` is configurable instead of hard-coded.
+- The department dashboard (`/dashboard/department`) is no longer reachable by the `employee` and `auditor` roles; both now see the access-denied state.
 
 ### Fixed
 
