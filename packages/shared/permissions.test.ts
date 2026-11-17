@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ACL_ACTIONS, ROLE_CAPABILITIES, can, capabilitiesFor } from "./permissions";
+import { ACL_ACTIONS, ACL_MANAGER_ROLES, ROLE_CAPABILITIES, can, canManageAcl, capabilitiesFor } from "./permissions";
 import { USER_ROLES, isGlobalRole, normalizeRoles } from "./roles";
 
 describe("shared role capabilities", () => {
@@ -26,6 +26,14 @@ describe("shared role capabilities", () => {
     const actions = capabilitiesFor("EMPLOYEE");
     actions.push("DELETE");
     expect(capabilitiesFor("EMPLOYEE")).not.toContain("DELETE");
+  });
+
+  it("restricts ACL management to the archivist and system administrator roles", () => {
+    expect(ACL_MANAGER_ROLES).toEqual(["SYSTEM_ADMIN", "ARCHIVIST"]);
+    expect(canManageAcl("SYSTEM_ADMIN")).toBe(true);
+    expect(canManageAcl("ARCHIVIST")).toBe(true);
+    expect(canManageAcl("DEPT_MANAGER")).toBe(false);
+    expect(canManageAcl("EMPLOYEE")).toBe(false);
   });
 });
 

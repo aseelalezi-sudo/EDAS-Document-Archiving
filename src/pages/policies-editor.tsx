@@ -56,7 +56,7 @@ export function PolicyEditor() {
     if (!apiMode) {
       const policy = polStore.items.find((item) => item.id === id) as Policy | undefined;
       if (!policy) {
-        toast({ type: "error", title: L("السياسة غير موجودة", "Policy not found") });
+        toast({ type: "error", title: lang === "en" ? "Policy not found" : "السياسة غير موجودة" });
         navigate("/policies");
         return;
       }
@@ -92,7 +92,7 @@ export function PolicyEditor() {
         if (cancelled) return;
         const policy = page.items.find((item) => item.id === id);
         if (!policy) {
-          toast({ type: "error", title: L("السياسة غير موجودة", "Policy not found") });
+          toast({ type: "error", title: lang === "en" ? "Policy not found" : "السياسة غير موجودة" });
           navigate("/policies");
           return;
         }
@@ -118,7 +118,7 @@ export function PolicyEditor() {
     return () => {
       cancelled = true;
     };
-  }, [id, isEdit, apiMode]);
+  }, [id, isEdit, apiMode, lang, navigate, polStore.items, t, toast]);
 
   const affectedDocs = scopedDocs.filter((doc) =>
     form.scope === "global" ? true : form.scope === "category" ? doc.categoryId === form.scopeTarget : doc.deptId === form.scopeTarget,

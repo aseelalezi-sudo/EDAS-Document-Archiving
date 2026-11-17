@@ -153,6 +153,7 @@ function buildService() {
     isGlobal: vi.fn().mockReturnValue(false),
     assertDepartmentScope: vi.fn().mockResolvedValue(undefined),
     permissionsFor: vi.fn().mockResolvedValue(new Set(["VIEW", "EDIT", "DELETE", "APPROVE", "CREATE"])),
+    visibleFolderIds: vi.fn().mockResolvedValue(["folder-1"]),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const storage = { remove: vi.fn().mockResolvedValue(undefined) };
@@ -182,7 +183,7 @@ describe("DocumentsService listing", () => {
     expect(args.take).toBe(25);
     expect(args.where).toMatchObject({
       deletedAt: null,
-      AND: [{ OR: [{ departmentId: "dept-1" }, { departmentId: null, folder: { departmentId: "dept-1" } }] }],
+      AND: [{ OR: [{ folderId: { in: ["folder-1"] } }, { folderId: null, departmentId: "dept-1" }] }],
     });
     expect(result.meta).toEqual({ page: 1, pageSize: 25, total: 1, departmentId: "dept-1" });
     expect(result.items[0]).toMatchObject({

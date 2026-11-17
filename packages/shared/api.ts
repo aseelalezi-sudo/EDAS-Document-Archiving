@@ -75,6 +75,8 @@ export interface FolderDto {
   path: string;
   parentId: string | null;
   departmentId: string | null;
+  sectionId?: string | null;
+  ownerId?: string | null;
   projectId: string | null;
   createdAt: string;
 }

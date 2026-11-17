@@ -306,7 +306,10 @@ describe("DocumentsService department scope", () => {
 
     const outsider = scoped({ departmentId: null, ownerId: "user-1" }, { id: "user-8", departmentId: "dept-other", role: "DEPT_MANAGER" });
     await expect(outsider.service.get({ sub: "user-8" } as never, "doc-1")).rejects.toBeInstanceOf(ForbiddenException);
-    expect(outsider.folderLookup).toHaveBeenCalledWith({ where: { id: "folder-1" }, select: { departmentId: true } });
+    expect(outsider.folderLookup).toHaveBeenCalledWith({
+      where: { id: "folder-1" },
+      select: { id: true, parentId: true, scope: true, departmentId: true, sectionId: true, ownerId: true, aclInherit: true },
+    });
   });
 
   it("denies an actor without a department when the document has no department anchor", async () => {

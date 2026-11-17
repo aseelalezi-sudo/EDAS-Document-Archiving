@@ -28,5 +28,9 @@ export class CreateFolderDto {
 
   @IsOptional()
   @IsUUID()
+  sectionId?: string;
+
+  @IsOptional()
+  @IsUUID()
   projectId?: string;
 }

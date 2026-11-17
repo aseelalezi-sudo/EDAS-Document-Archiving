@@ -133,6 +133,16 @@ describe("ACL rules editor", () => {
     expect(screen.queryByRole("button", { name: "حذف القاعدة" })).not.toBeInTheDocument();
   });
 
+  it("keeps department managers read-only, matching the shared ACL manager list", () => {
+    mockStore();
+    mockApp("dept_manager");
+
+    render(<ACLRulesEditor folderId="f-1" />);
+
+    expect(screen.getByText(/لديك صلاحية عرض فقط/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /إضافة قاعدة/ })).not.toBeInTheDocument();
+  });
+
   it("hides the rules and offers a retry when the folder fetch failed", async () => {
     const store = mockStore({ aclFailedFolders: ["f-1"], retryFolderAcl: vi.fn().mockResolvedValue(false) });
     const app = mockApp();

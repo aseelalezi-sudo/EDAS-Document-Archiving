@@ -73,6 +73,11 @@ function build(actor: { id: string; departmentId: string | null; role: string } 
   const access = {
     resolveActor: vi.fn().mockResolvedValue(actor),
     isGlobal: vi.fn().mockReturnValue(actor.role === "SYSTEM_ADMIN" || actor.role === "AUDITOR"),
+    documentVisibilityFilter: vi.fn().mockImplementation(async (candidate: { departmentId: string | null }) =>
+      candidate.departmentId
+        ? { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null, departmentId: candidate.departmentId }] }
+        : undefined,
+    ),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const storage = { bucketName: "edas", put: vi.fn().mockResolvedValue(undefined) };

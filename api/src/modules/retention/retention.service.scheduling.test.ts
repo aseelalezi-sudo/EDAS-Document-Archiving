@@ -117,6 +117,11 @@ function buildService(actor: { id: string; departmentId: string | null; role: st
     resolveActor: vi.fn().mockResolvedValue(actor),
     assert: vi.fn().mockResolvedValue(actor),
     isGlobal: vi.fn().mockReturnValue(actor.role === "SYSTEM_ADMIN"),
+    documentVisibilityFilter: vi.fn().mockImplementation(async (candidate: { departmentId: string | null }) =>
+      candidate.departmentId
+        ? { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null, departmentId: candidate.departmentId }] }
+        : undefined,
+    ),
   };
   const audit = {
     record: vi.fn(async (input: { detail: Record<string, unknown> }) => ({
@@ -230,7 +235,14 @@ describe("RetentionService item listing", () => {
       expect.objectContaining({
         skip: 0,
         take: 25,
-        where: expect.objectContaining({ document: { departmentId: "dept-fin" } }),
+        where: expect.objectContaining({
+          document: {
+            OR: [
+              { folderId: { in: ["folder-visible"] } },
+              { folderId: null, departmentId: "dept-fin" },
+            ],
+          },
+        }),
       }),
     );
     expect(result.meta).toEqual({ page: 1, pageSize: 25, total: 1 });

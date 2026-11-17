@@ -107,6 +107,25 @@ describe("canAccess permission engine", () => {
     expect(canAccess({ ...args, action: "view" })).toBe(true);
   });
 
+  it("does not let an allow rule exceed the employee role ceiling", () => {
+    const allowed: Record<string, ACLRule[]> = {
+      "f-eng": [{ id: "u2", principalType: "user", principalId: "u-1", principalName: "Test", permissions: ["delete"] }],
+    };
+
+    expect(
+      canAccess({
+        folders,
+        acls: allowed,
+        action: "delete",
+        folderId: "f-eng",
+        docDeptId: "eng",
+        role: "employee",
+        userDeptId: "fin",
+        userId: "u-1",
+      }),
+    ).toBe(false);
+  });
+
   it("applies a deny rule inherited from the parent folder", () => {
     const blocked: Record<string, ACLRule[]> = {
       "f-legal": [

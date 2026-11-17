@@ -196,8 +196,12 @@ export class RetentionService {
     if (query.policyId) where.policyId = query.policyId;
     if (query.dueOnly) where.dueAt = { lte: new Date() };
 
-    const departmentId = this.access.isGlobal(actor) ? query.departmentId : departmentMatch(actor.departmentId);
-    if (departmentId) where.document = { departmentId };
+    if (this.access.isGlobal(actor)) {
+      if (query.departmentId) where.document = { departmentId: query.departmentId };
+    } else {
+      const visibility = await this.access.documentVisibilityFilter(actor);
+      if (visibility) where.document = visibility;
+    }
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.retentionItem.findMany({

@@ -4,6 +4,8 @@ import { useApp } from "../store";
 import { Button, Select, Badge, Checkbox, ConfirmDialog, EmptyState } from "../components/ui";
 import { useDocsStore } from "../store-docs";
 import type { ACLRule, PermAction } from "../types";
+import { canManageAcl } from "@edas/shared";
+import { roleToApi } from "../lib/role-bridge";
 export function ACLRulesEditor({ folderId }: { folderId: string }) {
   const { lang, role, toast } = useApp();
   const {
@@ -21,7 +23,7 @@ export function ACLRulesEditor({ folderId }: { folderId: string }) {
     users: userStore,
   } = useDocsStore();
   const L = (ar: string, en: string) => (lang === "en" ? en : ar);
-  const canManage = role === "system_admin" || role === "archivist";
+  const canManage = canManageAcl(roleToApi(role));
   const aclFailed = aclFailedFolders.includes(folderId);
   const [retrying, setRetrying] = useState(false);
   const retry = async () => {

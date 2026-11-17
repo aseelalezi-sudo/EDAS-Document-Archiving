@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { AclAction, AclEffect, Folder, FolderType, Prisma } from "@prisma/client";
-import { AccessService, departmentMatch } from "../../common/access/access.service";
+import { canManageAcl } from "@edas/shared";
+import type { UserRole as SharedRole } from "@edas/shared";
+import { AccessService } from "../../common/access/access.service";
 import type { Principal } from "../../common/auth/principal";
 import { PrismaService } from "../../common/prisma/prisma.service";
 import { AuditService } from "../audit/audit.service";
@@ -19,8 +21,8 @@ export class FoldersService {
 
   async tree(principal: Principal) {
     const { actor, departmentId } = await this.access.listScope(principal);
-    const match = departmentMatch(departmentId);
-    const where: Prisma.FolderWhereInput = match ? { departmentId: match } : {};
+    const visible = await this.access.visibleFolderIds(actor);
+    const where: Prisma.FolderWhereInput = visible === null ? {} : { id: { in: visible } };
     const folders = await this.prisma.folder.findMany({
       where,
       orderBy: { name: "asc" },
@@ -52,14 +54,24 @@ export class FoldersService {
 
   async create(principal: Principal, dto: CreateFolderDto) {
     const actor = await this.access.assert(principal, AclAction.CREATE, dto.parentId ?? null);
-    const departmentId = this.access.isGlobal(actor) ? dto.departmentId : (actor.departmentId ?? undefined);
 
     let path = "/";
+    let parentDepartmentId: string | null | undefined;
+    let parentSectionId: string | null | undefined;
     if (dto.parentId) {
-      const parent = await this.prisma.folder.findUnique({ where: { id: dto.parentId }, select: { path: true } });
+      const parent = await this.prisma.folder.findUnique({
+        where: { id: dto.parentId },
+        select: { path: true, departmentId: true, sectionId: true },
+      });
       if (!parent) throw new BadRequestException("Parent folder not found");
       path = parent.path;
+      parentDepartmentId = parent.departmentId;
+      parentSectionId = parent.sectionId;
     }
+
+    const global = this.access.isGlobal(actor);
+    const departmentId = global ? (parentDepartmentId ?? dto.departmentId) : (actor.departmentId ?? undefined);
+    const sectionId = global ? (parentSectionId ?? dto.sectionId) : (actor.sectionId ?? undefined);
 
     const id = randomUUID();
     const folder = await this.prisma.folder.create({
@@ -71,6 +83,8 @@ export class FoldersService {
         scope: dto.scope,
         parentId: dto.parentId,
         departmentId,
+        sectionId,
+        ownerId: actor.id,
         projectId: dto.projectId,
         path: `${path}${id}/`,
       },
@@ -90,6 +104,10 @@ export class FoldersService {
   async update(principal: Principal, id: string, dto: UpdateFolderDto) {
     const actor = await this.access.assert(principal, AclAction.EDIT, id);
     await this.ensureExists(id);
+    const changesScope = dto.scope !== undefined || dto.aclInherit !== undefined;
+    if (changesScope && !this.access.isGlobal(actor) && !canManageAcl(actor.role as unknown as SharedRole)) {
+      throw new ForbiddenException("Missing permission: MANAGE_SCOPE");
+    }
     const folder = await this.prisma.folder.update({
       where: { id },
       data: { name: dto.name, nameEn: dto.nameEn, scope: dto.scope, aclInherit: dto.aclInherit },
@@ -144,6 +162,7 @@ export class FoldersService {
 
   async putAcl(principal: Principal, id: string, dto: PutAclDto) {
     const actor = await this.access.assert(principal, AclAction.EDIT, id);
+    if (!canManageAcl(actor.role as unknown as SharedRole)) throw new ForbiddenException("Missing permission: MANAGE_ACL");
     await this.ensureExists(id);
 
     await this.prisma.$transaction([
