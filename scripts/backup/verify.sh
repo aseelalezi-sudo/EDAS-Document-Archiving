@@ -37,7 +37,7 @@ done
 
 if [[ -f "$BACKUP/minio-data.tar.gz" ]]; then
   echo "Checking MinIO archive readability"
-  tar -tzf "$BACKUP/minio-data.tar.gz" >/dev/null
+  (cd "$BACKUP" && tar -tzf minio-data.tar.gz >/dev/null)
 fi
 
 echo "Backup verification succeeded. The temporary database is removed on exit."
