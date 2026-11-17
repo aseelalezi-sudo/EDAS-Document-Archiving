@@ -29,6 +29,8 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 
 - Report run history opened an empty list instead of the run log.
 - Six ESLint warnings in shared UI hooks and policy editor effects.
+- New user accounts could be created with a five-digit employee number, which broke the `EMP-\d{4}` expectation in the admin-users test.
+- The ODA install-root scan built Windows paths with the host path flavour, so DWG converter detection failed its test on non-Windows CI runners.
 
 ## [0.1.0] - TBD
 
