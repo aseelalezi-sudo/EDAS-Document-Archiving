@@ -277,7 +277,7 @@ export function DataTable<T extends { id: string }>({
             <tr className="border-b border-ink-100 bg-ink-50/70 text-start dark:border-ink-800 dark:bg-ink-950/50">
               {selectable && (
                 <th className="w-12 px-4 py-3">
-                  <Checkbox checked={!!allChecked} onChange={toggleAll} />
+                  <Checkbox checked={!!allChecked} onChange={toggleAll} label={t("g.selectAll")} />
                 </th>
               )}
               {columns.map((c) => (
@@ -322,7 +322,7 @@ export function DataTable<T extends { id: string }>({
                 >
                   {selectable && (
                     <td className="px-4" onClick={(e) => e.stopPropagation()}>
-                      <Checkbox checked={!!checked} onChange={() => toggleOne(row.id)} />
+                      <Checkbox checked={!!checked} onChange={() => toggleOne(row.id)} label={t("g.selectRow")} />
                     </td>
                   )}
                   {columns.map((c) => (
@@ -609,7 +609,7 @@ export function Segmented<T extends string>({
   value,
   onChange,
 }: {
-  options: { value: T; label: string; icon?: ReactNode }[];
+  options: { value: T; label: string; icon?: ReactNode; ariaLabel?: string }[];
   value: T;
   onChange: (v: T) => void;
 }) {
@@ -619,6 +619,7 @@ export function Segmented<T extends string>({
         <button
           key={o.value}
           onClick={() => onChange(o.value)}
+          aria-label={o.ariaLabel}
           className={cn(
             "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-semibold transition-all",
             value === o.value

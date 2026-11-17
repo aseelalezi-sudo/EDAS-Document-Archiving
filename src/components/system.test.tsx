@@ -65,7 +65,7 @@ afterEach(() => {
 describe("toast host", () => {
   it("renders toasts and dismisses them", () => {
     const dismissToast = vi.fn();
-    mocks.app.mockReturnValue({
+    mockApp({
       toasts: [
         { id: "1", type: "success", title: "تم الحفظ", message: "حُفظت الوثيقة" },
         { id: "2", type: "error", title: "فشل الحفظ" },
@@ -85,12 +85,13 @@ describe("toast host", () => {
 
     const buttons = within(status).getAllByRole("button");
     expect(buttons).toHaveLength(4);
+    expect(buttons[1]).toHaveAttribute("aria-label", "إغلاق");
     fireEvent.click(buttons[1]);
     expect(dismissToast).toHaveBeenCalledWith("2");
   });
 
   it("renders an empty live region without toasts", () => {
-    mocks.app.mockReturnValue({ toasts: [], dismissToast: vi.fn() });
+    mockApp({ toasts: [], dismissToast: vi.fn() });
     render(<ToastHost />);
 
     expect(within(screen.getByRole("status")).queryByRole("button")).not.toBeInTheDocument();

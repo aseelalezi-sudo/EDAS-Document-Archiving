@@ -225,7 +225,11 @@ export function ACLRulesEditor({ folderId }: { folderId: string }) {
                     {PERMS.map((p) => (
                       <td key={p.key} className="p-2.5">
                         {canManage ? (
-                          <Checkbox checked={r.permissions.includes(p.key)} onChange={() => toggleRulePermission(folderId, r.id, p.key)} />
+                          <Checkbox
+                            checked={r.permissions.includes(p.key)}
+                            onChange={() => toggleRulePermission(folderId, r.id, p.key)}
+                            label={p.label}
+                          />
                         ) : r.permissions.includes(p.key) ? (
                           <Check className="mx-auto h-4 w-4 text-emerald-500" />
                         ) : (

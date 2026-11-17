@@ -242,7 +242,7 @@ export function Policies() {
             onChange={(e) => setQ(e.target.value)}
           />
         </div>
-        <Select className="h-8 w-36 text-xs" value={fStatus} onChange={(e) => setFStatus(e.target.value)}>
+        <Select className="h-8 w-36 text-xs" value={fStatus} onChange={(e) => setFStatus(e.target.value)} aria-label={t("g.status")}>
           <option value="all">
             {t("g.all")} — {t("g.status")}
           </option>

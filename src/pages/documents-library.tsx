@@ -426,7 +426,12 @@ export function Library() {
           {lang === "en" ? "Permissions" : "الصلاحيات"}
         </Button>
         <div className="ms-auto flex items-center gap-1">
-          <Select className="h-8 w-36 text-xs" value={sort} onChange={(e) => setSort(e.target.value)}>
+          <Select
+            className="h-8 w-36 text-xs"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+            aria-label={lang === "en" ? "Sort by" : "ترتيب حسب"}
+          >
             <option value="name">{lang === "en" ? "Sort: Name" : "ترتيب: الاسم"}</option>
             <option value="recent">{lang === "en" ? "Sort: Recent" : "ترتيب: الأحدث"}</option>
             <option value="size">{lang === "en" ? "Sort: Size" : "ترتيب: الحجم"}</option>
@@ -435,14 +440,16 @@ export function Library() {
             value={view}
             onChange={setView}
             options={[
-              { value: "list", label: "", icon: <ListIcon className="h-4 w-4" /> },
-              { value: "grid", label: "", icon: <LayoutGrid className="h-4 w-4" /> },
+              { value: "list", label: "", icon: <ListIcon className="h-4 w-4" />, ariaLabel: lang === "en" ? "List view" : "عرض القائمة" },
+              { value: "grid", label: "", icon: <LayoutGrid className="h-4 w-4" />, ariaLabel: lang === "en" ? "Grid view" : "عرض الشبكة" },
             ]}
           />
           <Button
             variant="ghost"
             size="icon"
             className={cn("h-8 w-8", showDetails && "text-navy-600")}
+            aria-label={lang === "en" ? "Toggle details panel" : "إظهار أو إخفاء لوحة التفاصيل"}
+            aria-pressed={showDetails}
             onClick={() => setShowDetails((s) => !s)}
           >
             <Columns3 className="h-4 w-4" />

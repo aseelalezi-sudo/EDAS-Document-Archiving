@@ -286,6 +286,13 @@ describe("DataTable", () => {
     expect(onSelectedChange).toHaveBeenLastCalledWith([]);
   });
 
+  it("names the select-all and row checkboxes for assistive tech", () => {
+    render(<DataTable columns={columns} rows={rows} selectable selected={[]} onSelectedChange={vi.fn()} />, { wrapper });
+
+    expect(screen.getByRole("checkbox", { name: "تحديد الكل" })).toBeInTheDocument();
+    expect(screen.getAllByRole("checkbox", { name: "تحديد الصف" })).toHaveLength(3);
+  });
+
   it("reports clicks, double clicks and context menus on a row", () => {
     const onRowClick = vi.fn();
     const onRowDoubleClick = vi.fn();

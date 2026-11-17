@@ -122,7 +122,8 @@ describe("the sidebar", () => {
     expect(link(AR["nav.dashboard"])).toHaveAttribute("title", AR["nav.dashboard"]);
     expect(screen.getByTitle(`حجم الوثائق: 1.0 MB`)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button"));
+    const toggle = screen.getByRole("button", { name: AR["nav.expandSidebar"] });
+    fireEvent.click(toggle);
     expect(setSidebarCollapsed).toHaveBeenCalledWith(false);
   });
 

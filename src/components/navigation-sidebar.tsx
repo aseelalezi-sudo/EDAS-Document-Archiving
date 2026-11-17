@@ -114,6 +114,7 @@ export function Sidebar({ mobileOpen = false }: { mobileOpen?: boolean }) {
 
       <button
         onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        aria-label={sidebarCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
         className="absolute -end-3 top-7 z-40 hidden h-6 w-6 items-center justify-center rounded-full border border-ink-200 bg-white text-ink-500 shadow-md transition-colors hover:bg-navy-50 hover:text-navy-600 dark:border-ink-700 dark:bg-ink-900 lg:flex"
       >
         <CollapseIcon className="h-3.5 w-3.5" />

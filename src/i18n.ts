@@ -69,6 +69,8 @@ export const translations: Record<Lang, Record<string, string>> = {
     "g.previous": "السابق",
     "g.finish": "إنهاء",
     "g.select": "اختيار",
+    "g.selectAll": "تحديد الكل",
+    "g.selectRow": "تحديد الصف",
     "g.duplicate": "نسخ",
 
     // Auth
@@ -187,6 +189,8 @@ export const translations: Record<Lang, Record<string, string>> = {
     "nav.dashboard": "لوحة المعلومات",
     "nav.dashboardDept": "لوحة الإدارة",
     "nav.library": "مكتبة الوثائق",
+    "nav.collapseSidebar": "طيّ الشريط الجانبي",
+    "nav.expandSidebar": "توسيع الشريط الجانبي",
     "nav.documents": "جميع الوثائق",
     "nav.search": "البحث",
     "nav.advancedSearch": "البحث المتقدم",
@@ -503,6 +507,8 @@ export const translations: Record<Lang, Record<string, string>> = {
     "g.previous": "Previous",
     "g.finish": "Finish",
     "g.select": "Select",
+    "g.selectAll": "Select all",
+    "g.selectRow": "Select row",
     "g.duplicate": "Duplicate",
 
     "auth.login": "Sign in",
@@ -619,6 +625,8 @@ export const translations: Record<Lang, Record<string, string>> = {
     "nav.dashboard": "Dashboard",
     "nav.dashboardDept": "Department Dashboard",
     "nav.library": "Document Library",
+    "nav.collapseSidebar": "Collapse sidebar",
+    "nav.expandSidebar": "Expand sidebar",
     "nav.documents": "All Documents",
     "nav.search": "Search",
     "nav.advancedSearch": "Advanced Search",
