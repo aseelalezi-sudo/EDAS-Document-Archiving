@@ -367,12 +367,12 @@ PostgreSQL   MinIO/S3   Keycloak    LibreOffice/ODA
 | حماية المقاييس                    | ✅ `METRICS_TOKEN` في الإنتاج                      |
 | قواعد تنبيه                       | ✅ 7 قواعد في `infra/monitoring/alerts.yml`        |
 | جامع Prometheus                   | ✅ ملف جاهز في `infra/monitoring/prometheus.yml`   |
-| تتبّع موزّع / OpenTelemetry       | ❌ غير موجود                                       |
-| APM                               | ❌ غير موجود                                       |
-| تجميع سجلات مركزي                 | ❌ غير موجود                                       |
-| تسليم تنبيهات (Alertmanager/بريد) | ❌ غير مرفق                                        |
+| تتبّع موزّع / OpenTelemetry       | ✅ SDK + Collector + Jaeger ضمن profile المراقبة   |
+| APM                               | ❌ غير مدمج (Jaeger للـtraces فقط)                 |
+| تجميع سجلات مركزي                 | ✅ Loki + Promtail ضمن profile المراقبة            |
+| تسليم تنبيهات (Alertmanager/بريد) | ⚠️ Alertmanager مدمج، receiver فارغ                |
 | نسخ احتياطي مجدول                 | ❌ مسؤولية تشغيلية موثّقة فقط                      |
-| Versioning على حاوية S3           | ❌ غير مفعّل                                       |
+| Versioning على حاوية S3           | ✅ مفعّل في `minio-init` المحلي                    |
 
 إجراءات النسخ والاستعادة موثّقة بالكامل في README (`pg_dump` + `mc mirror` + `pg_restore` + إعادة الترحيلات وفحص السلسلة)، لكنها **يدوية**.
 
@@ -528,7 +528,7 @@ cd api && npm audit --audit-level=high
 1. ~~**دلالات ACL `ALLOW`**~~: حُسمت في القسم 18 (سقف الدور + `DENY` أولًا + `Folder.scope`).
 2. ~~**طابور المعاينة/الكاش**~~: حُسم في القسم 18 (Redis/BullMQ اختياري + كاش S3).
 3. **التحميل الأولي الكامل** للسلة/الاحتفاظ/الموظفين: ترقيم أو تحميل كسول.
-4. **المراقبة**: OpenTelemetry/APM وتجميع سجلات وتسليم تنبيهات.
+4. ~~**المراقبة**: OpenTelemetry/APM وتجميع سجلات وتسليم تنبيهات.~~ أُنجز في القسم 18 باستثناء ربط receiver فعلي وAPM.
 5. **النسخ الاحتياطي المجدول** (Versioning مفعّل محليًا؛ الإنتاج يحتاج تفعيله على الحاوية الخارجية).
 6. **إدارة الإصدارات**: لا وسوم ولا `CHANGELOG`.
 
@@ -571,30 +571,33 @@ cd api && npm audit --audit-level=high
 
 ### 18.3 البوابات بعد الجولة
 
-| البوابة                                            | النتيجة                                                                       |
-| -------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `npm run typecheck`                                | ✅                                                                            |
-| `npm run lint`                                     | ✅ 0/0                                                                        |
-| `npm run format:check`                             | ✅                                                                            |
-| `npm run check:secrets`                            | ✅ 520 ملفًا متتبّعًا / 560 مفحوصًا                                           |
-| `npm test`                                         | ✅ 112 ملفًا / 1,435 اختبارًا (ظهر فشل عابر واحد مرة واحدة ثم نجح في إعادتين) |
-| `npm run test:coverage`                            | ✅ 92.12 / 82.39 / 88.60 / 94.16                                              |
-| `npm run build`                                    | ✅                                                                            |
-| `npm run test:browser`                             | ✅ 4/4                                                                        |
-| `npm run api:typecheck` / `api:lint`               | ✅                                                                            |
-| `npm run api:test`                                 | ✅ 82 ملفًا / 1,202 اختبارًا                                                  |
-| `npm run api:test:coverage`                        | ✅ 98.18 / 98.06 / 98.18 / 98.21                                              |
-| `npm run api:build`                                | ✅                                                                            |
-| `npx prisma validate`                              | ✅                                                                            |
-| `npm audit --audit-level=high`                     | ✅ 0 vulnerabilities في الجذر وAPI                                            |
-| `bash -n scripts/backup/*.sh`                      | ✅                                                                            |
-| `promtool check rules infra/monitoring/alerts.yml` | ✅ 7 قواعد                                                                    |
-| `docker compose config`                            | ✅ بعد تثبيت digests                                                          |
+| البوابة                                            | النتيجة                                                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `npm run typecheck`                                | ✅                                                                                          |
+| `npm run lint`                                     | ✅ 0/0                                                                                      |
+| `npm run format:check`                             | ✅                                                                                          |
+| `npm run check:secrets`                            | ✅ 520 ملفًا متتبّعًا / 560 مفحوصًا                                                         |
+| `npm test`                                         | ✅ 112 ملفًا / 1,435 اختبارًا (ظهر فشل عابر واحد مرة واحدة ثم نجح في إعادتين)               |
+| `npm run test:coverage`                            | ✅ 92.12 / 82.39 / 88.60 / 94.16                                                            |
+| `npm run build`                                    | ✅                                                                                          |
+| `npm run test:browser`                             | ✅ 4/4                                                                                      |
+| `npm run api:typecheck` / `api:lint`               | ✅                                                                                          |
+| `npm run api:test`                                 | ✅ 82 ملفًا / 1,202 اختبارًا                                                                |
+| `npm run api:test:coverage`                        | ✅ 98.18 / 98.06 / 98.18 / 98.21                                                            |
+| `npm run api:build`                                | ✅                                                                                          |
+| `npx prisma validate`                              | ✅                                                                                          |
+| `npm audit --audit-level=high`                     | ✅ 0 vulnerabilities في الجذر وAPI                                                          |
+| `bash -n scripts/backup/*.sh`                      | ✅                                                                                          |
+| `promtool check rules infra/monitoring/alerts.yml` | ✅ 7 قواعد                                                                                  |
+| `docker compose config`                            | ✅ بعد تثبيت digests                                                                        |
+| `promtool` / `amtool` / Loki / OTel validate       | ✅ Prometheus 7 قواعد، Alertmanager، Loki، Promtail، Collector                              |
+| مكدّس المراقبة العملي                              | ✅ Prometheus up، Alertmanager ready، Loki يستقبل سجلات API، Grafana/Loki/Prometheus جاهزان |
+| التتبع OTLP → Jaeger                               | ✅ `traceId` في سجل API يطابق trace في Jaeger، و`traceparent` الوارد يُحترم                 |
 
 ### 18.4 ما لم يُنفَّذ أو يحتاج قرارًا
 
 1. **Redis/BullMQ لطابور المعاينة:** ✅ تحقق تكاملي فعلي في حاوية Redis مؤقتة: وظيفة مكتملة بمعرّف ثابت `jobId`، ووظيفة فاشلة أُعيدت مرتين مع حفظ السبب، ثم حُذفت الحاوية.
-2. **OpenTelemetry/Loki/Alertmanager كخدمات:** سياق W3C `traceparent` و`traceId` في السجلات منفّذ، لكن SDK/Collector/Loki/Alertmanager كخدمات غير مدمجة؛ ملفات Prometheus والقواعد موجودة فقط.
+2. **OpenTelemetry/Loki/Alertmanager كخدمات:** ✅ SDK يبدأ عند ضبط `OTEL_EXPORTER_OTLP_ENDPOINT` ويصدّر HTTP/Express spans عبر Collector إلى Jaeger، وتحمّل السجلات `traceId` نفسه. ✅ Prometheus وAlertmanager وLoki وPromtail وGrafana تعمل تحت profile `observability`. يبقى ربط receiver إشعار حقيقي وAPM اختياريًا.
 3. **E2E والنسخ الاحتياطي:** ✅ `npm run e2e` نجح بالكامل بعد إصلاح نطاق تحرير الحجز القانوني. ✅ `backup.sh` أنشأ نسخة PostgreSQL + MinIO + SHA256SUMS، و`verify.sh` استعادها في قاعدة `edas_verify_*` معزولة وتحقق من العدّادات وقراءة أرشيف MinIO. أُصلح مسار `tar` على Windows في `verify.sh`.
 4. **تثبيت صور Docker على digest:** نُفِّذ لصور Compose و`api/Dockerfile` باستخدام digests محلية متحققة عبر `docker image inspect`؛ تحقق من تحديثها عند الترقية.
 5. **وسم `0.1.0`:** أُعدّ `CHANGELOG` وسياسة الإصدار، ولم يُنشأ وسم أو نشر رسمي بانتظار الموافقة.

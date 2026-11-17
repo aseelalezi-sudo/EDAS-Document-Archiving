@@ -12,6 +12,9 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 - Browser smoke test guards against CSP violations.
 - Build-time CSP meta tag and optional `VITE_REQUIRE_API` deployment guard.
 - Versioned MinIO bucket in the local stack and backup/restore runbooks plus verification scripts.
+- Optional Redis/BullMQ preview queue with retry, idempotent job ids, and an in-process fallback.
+- OpenTelemetry tracing for HTTP/Express, W3C trace context, and log `traceId` correlation.
+- Optional observability profile with Prometheus, Alertmanager, Loki, Promtail, Grafana, the OpenTelemetry Collector, and Jaeger.
 - Release process, rollback checklist, and versioning policy.
 
 ### Changed

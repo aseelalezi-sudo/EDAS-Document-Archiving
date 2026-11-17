@@ -105,8 +105,11 @@ Always verify changes with:
   serve `/reports/runs/:id/download`), `report-templates`, `roles` (per-role capability overrides stored in `RolePolicy`; `/roles` GET for admin/manager/auditor, PATCH/DELETE for system admin), `saved-searches`, `settings`, `audit` (hash-chained), `metrics` (Prometheus text at `/api/v1/metrics`; `METRICS_TOKEN` required to expose it in production). Mutating
   endpoints must write an audit event.
 - Root ESLint/tsconfig exclude `api/`; the API has its own `eslint.config.mjs` and `tsconfig.json`.
-- Prometheus scrape config and alert rules live in `infra/monitoring/` (no extra compose service);
-  validate edits with `promtool check config` / `check rules` before committing.
+- The observability stack lives behind `docker compose --profile observability` (Prometheus,
+  Alertmanager, Loki, Promtail, Grafana, OpenTelemetry Collector, Jaeger). Configs are in
+  `infra/monitoring/`; validate Prometheus with `promtool`, Alertmanager with `amtool`, Loki with
+  `-verify-config`, and the collector with `validate` before committing. The API enables
+  OpenTelemetry only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set; keep log `traceId` tied to the active span.
 - Git history exists on `master`; keep changes small and focused, with a test beside every fix.
 - Production SPA builds inject a CSP `<meta>` (`src/lib/csp.ts`); extend its tests when a new browser
   resource origin is needed. `VITE_REQUIRE_API=true` fails a deployed build that lacks the API config.
