@@ -38,3 +38,4 @@ The first security-hardened pre-production baseline.
 - New user accounts could be created with a five-digit employee number, which broke the `EMP-\d{4}` expectation in the admin-users test.
 - The ODA install-root scan built Windows paths with the host path flavour, so DWG converter detection failed its test on non-Windows CI runners.
 - The assistant date-range test compared fixtures against the real clock, so it started failing as soon as the calendar day moved past them; the suite now pins the system time.
+- The default one-second `waitFor` timeout was too tight for loaded CI workers and flaked unrelated page tests; the SPA test setup now allows five seconds.
