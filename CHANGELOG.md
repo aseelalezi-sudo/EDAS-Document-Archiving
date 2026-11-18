@@ -4,6 +4,10 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-18
+
+The first security-hardened pre-production baseline.
+
 ### Added
 
 - `Folder.scope` enforcement for `PUBLIC`, `DEPARTMENT`, `SECTION`, and `PRIVATE`, including a `Folder.sectionId` migration and owner assignment on new folders.
@@ -32,7 +36,3 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 - Six ESLint warnings in shared UI hooks and policy editor effects.
 - New user accounts could be created with a five-digit employee number, which broke the `EMP-\d{4}` expectation in the admin-users test.
 - The ODA install-root scan built Windows paths with the host path flavour, so DWG converter detection failed its test on non-Windows CI runners.
-
-## [0.1.0] - TBD
-
-The first security-hardened pre-production baseline. Do not tag until the release checklist in `docs/release-process.md` is complete and the release owner approves it.
