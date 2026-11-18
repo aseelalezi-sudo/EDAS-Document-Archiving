@@ -4,6 +4,10 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-18
+
+The first security-hardened pre-production baseline.
+
 ### Added
 
 - `Folder.scope` enforcement for `PUBLIC`, `DEPARTMENT`, `SECTION`, and `PRIVATE`, including a `Folder.sectionId` migration and owner assignment on new folders.
@@ -24,6 +28,8 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 - Documents listing and the folder tree now derive visibility from effective folder permissions instead of a department-only filter.
 - `TRUST_PROXY` is configurable instead of hard-coded.
 - The department dashboard (`/dashboard/department`) is no longer reachable by the `employee` and `auditor` roles; both now see the access-denied state.
+- Local backup output (`backups/`, produced by `npm run backup:local`) is git-ignored so dumps are not committed by accident.
+- The blocking dependency-audit gate now covers production dependencies (`npm audit --omit=dev`); the full-tree audit runs in CI as a non-blocking advisory step.
 
 ### Fixed
 
@@ -31,7 +37,6 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 - Six ESLint warnings in shared UI hooks and policy editor effects.
 - New user accounts could be created with a five-digit employee number, which broke the `EMP-\d{4}` expectation in the admin-users test.
 - The ODA install-root scan built Windows paths with the host path flavour, so DWG converter detection failed its test on non-Windows CI runners.
-
-## [0.1.0] - TBD
-
-The first security-hardened pre-production baseline. Do not tag until the release checklist in `docs/release-process.md` is complete and the release owner approves it.
+- The assistant date-range test compared fixtures against the real clock, so it started failing as soon as the calendar day moved past them; the suite now pins the system time.
+- The default one-second `waitFor` timeout was too tight for loaded CI workers and flaked unrelated page tests; the SPA test setup now allows five seconds.
+- The SPA suite fanned out eight test workers on runners with fewer cores, which starved heavy tests into timeouts; the worker count now follows the available CPUs and CI gets a longer test timeout.

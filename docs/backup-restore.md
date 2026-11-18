@@ -28,6 +28,8 @@ bash scripts/backup/verify.sh /srv/edas-backups/<timestamp>
 
 `backup.sh` ينفّذ `pg_dump --format=custom` ثم يؤرشف حجم `miniodata`، ويكتب `SHA256SUMS` و`MANIFEST`. لا يوقف الحاوية.
 
+على Windows شُغّل السكربتان من Git Bash بمسارات بأسلوب ويندوز مع تعطيل تحويل مسارات MSYS (`MSYS_NO_PATHCONV=1`) وتمرير مسار `docker-compose.yml` بصيغة ويندوز؛ بدون ذلك فُسِّرت وسائط `-v` بشكل خاطئ. في الإنتاج (Linux) لا حاجة لذلك.
+
 ## نسخة PostgreSQL متواصلة (PITR)
 
 في الإنتاج، شغّل `archive_mode=on` و`archive_command` إلى تخزين خارجي، مع نسخة أساس أسبوعية:
@@ -79,5 +81,5 @@ pg_restore --clean --if-exists --no-owner -d edas /backups/base.dump
 ## القيود الحالية
 
 - لا توجد في المستودع بنية تخزين خارجي أو مفاتيح تشفير إنتاجية؛ يجب توفيرها من منصة النشر.
-- `backup.sh` و`verify.sh` لم يُشغّلا في هذه البيئة لعدم توفر Docker؛ تم فحص الصياغة فقط.
+- `backup.sh` و`verify.sh` شُغّلا محليًا بنجاح (2026-11-17): النسخة أنتجت `postgres.dump` و`minio-data.tar.gz` و`SHA256SUMS`، وأعاد التحقق الاستعادة إلى قاعدة `edas_verify_*` معزولة (Document=25، Folder=14، AuditEvent=944) وقرأ أرشيف MinIO، ثم حذف القاعدة المؤقتة تلقائيًا.
 - الاستعادة إلى إنتاج حقيقي تتطلب موافقة صريحة وخطة صيانة معلنة.

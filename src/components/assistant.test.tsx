@@ -251,6 +251,7 @@ function lastToast(toast: ReturnType<typeof vi.fn>) {
 
 beforeEach(() => {
   vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-11-17T12:00:00Z"));
   localStorage.clear();
   mocks.app.mockReset();
   mocks.docs.mockReset();

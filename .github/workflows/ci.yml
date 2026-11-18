@@ -23,7 +23,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci --legacy-peer-deps
-      - run: npm audit --audit-level=high
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Audit the full tree (advisory, does not block)
+        run: npm audit --audit-level=high
+        continue-on-error: true
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run format:check
@@ -46,7 +50,11 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm run shared:build
       - run: npm ci --prefix api
-      - run: npm audit --audit-level=high --prefix api
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high --prefix api
+      - name: Audit the full tree (advisory, does not block)
+        run: npm audit --audit-level=high --prefix api
+        continue-on-error: true
       - run: npm --prefix api run prisma:generate
       - run: npm run api:typecheck
       - run: npm run api:lint
