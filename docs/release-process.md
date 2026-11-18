@@ -12,12 +12,16 @@
 1. الشجرة نظيفة، وكل تغيير مطلوب مرفق باختبار.
 2. تحديث `CHANGELOG.md` تحت `[Unreleased]` ثم نقله إلى `[X.Y.Z]`.
 3. تشغيل البوابات كاملة:
+
    ```bash
    npm run typecheck && npm run lint && npm run format:check && npm run check:secrets
    npm test && npm run test:coverage && npm run build && npm run test:browser
    cd api && npm run typecheck && npm run lint && npm test && npm run test:coverage && npm run build
-   npm audit --audit-level=high
+   npm audit --omit=dev --audit-level=high
    ```
+
+   البوابة **المعيقة** للتدقيق هي تبعيات الإنتاج (`--omit=dev`)؛ أما التدقيق الكامل على الشجرة فيُشغّله CI كخطوة استشارية غير معيقة، لأن ثغرات أدوات البناء قد تبقى بلا ترقيع متاح وليست ضمن ما يُنشر.
+
 4. `cd api && npx prisma validate` ومراجعة SQL في `prisma/migrations/` (لا `db push`).
 5. بناء صورة API ووسمها بـdigest أو نسخة ثابتة، لا `latest`.
 6. التحقق من `/api/v1/health/ready` في بيئة staging، ومن مصفوفة ACL (سماح/منع/نطاق/وراثة).

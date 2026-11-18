@@ -48,8 +48,16 @@
 | الـAPI: `typecheck` / `lint`                                     | نجح                                                                                                                              |
 | الـAPI: `test:coverage`                                          | **1213** اختبارًا ✅ (العتبة 98/98/98/98)                                                                                        |
 | الـAPI: `build`                                                  | نجح                                                                                                                              |
-| `npm audit --audit-level=high`                                   | 0 ثغرات في الجذر وفي `api`                                                                                                       |
+| `npm audit --omit=dev --audit-level=high`                        | تبعيات الإنتاج: 0 ثغرات في الجذر وفي `api`                                                                                       |
+| `npm audit --audit-level=high` (كامل، غير معيق)                  | 14 (الجذر) و17 (`api`) ثغرة عالية في أدوات البناء/الاختبار — `picomatch` (CVE-2026-112366) بلا ترقيع متاح                        |
 | `npm run e2e`                                                    | `E2E PASS` — auth/org/users/groups/folders+ACL/files/documents/preview/approvals/retention/legal-holds/tasks/reports/settings ✅ |
+
+### ملاحظة التدقيق (2026-11-18)
+
+- ثغرة `picomatch` (`CVE-2026-112366`، ReDoS، تقييم 8.7) أُدرجت في قاعدة GitHub Advisory في 2026-10-19 وحُدِّث نطاقها في 2026-11-17؛ تشمل `picomatch <= 4.0.7` مع **Patched versions: None**، وأحدث إصدار منشور هو `4.0.7` نفسه.
+- التأثير محصور في أدوات البناء/الاختبار (vite، vitest، eslint عبر micromatch / fdir / tinyglobby)، ولا مساس بحزمة الـSPA المُصدَّرة ولا بتبعيات تشغيل الـAPI — وهو ما يؤكده `npm audit --omit=dev` = 0 ثغرات.
+- القرار (مالك الإصدار): البوابة المعيقة على تبعيات الإنتاج، والتدقيق الكامل خطوة استشارية غير معيقة في CI.
+- متابعة: ترقية `picomatch` فور نشر إصدار مُرقَّع، وإعادة فرض التدقيق الكامل معيقًا.
 
 ### البند 6 — مصفوفة ACL (سماح/منع/نطاق/وراثة)
 

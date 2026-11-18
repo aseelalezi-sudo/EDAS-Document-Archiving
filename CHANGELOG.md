@@ -29,6 +29,7 @@ The first security-hardened pre-production baseline.
 - `TRUST_PROXY` is configurable instead of hard-coded.
 - The department dashboard (`/dashboard/department`) is no longer reachable by the `employee` and `auditor` roles; both now see the access-denied state.
 - Local backup output (`backups/`, produced by `npm run backup:local`) is git-ignored so dumps are not committed by accident.
+- The blocking dependency-audit gate now covers production dependencies (`npm audit --omit=dev`); the full-tree audit runs in CI as a non-blocking advisory step.
 
 ### Fixed
 
