@@ -1,10 +1,14 @@
 import path from "path";
+import { availableParallelism } from "node:os";
 import { fileURLToPath } from "url";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vitest/config";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const isCI = Boolean(process.env.CI);
+const cores = availableParallelism();
 
 export default defineConfig({
   plugins: [react()],
@@ -21,8 +25,8 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}", "packages/**/*.{test,spec}.ts"],
     css: false,
-    testTimeout: 10_000,
-    maxWorkers: 8,
+    ...(isCI ? { testTimeout: 20_000 } : {}),
+    maxWorkers: Math.min(8, Math.max(2, cores)),
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov"],

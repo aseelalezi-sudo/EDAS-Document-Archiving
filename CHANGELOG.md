@@ -39,3 +39,4 @@ The first security-hardened pre-production baseline.
 - The ODA install-root scan built Windows paths with the host path flavour, so DWG converter detection failed its test on non-Windows CI runners.
 - The assistant date-range test compared fixtures against the real clock, so it started failing as soon as the calendar day moved past them; the suite now pins the system time.
 - The default one-second `waitFor` timeout was too tight for loaded CI workers and flaked unrelated page tests; the SPA test setup now allows five seconds.
+- The SPA suite fanned out eight test workers on runners with fewer cores, which starved heavy tests into timeouts; the worker count now follows the available CPUs and CI gets a longer test timeout.
