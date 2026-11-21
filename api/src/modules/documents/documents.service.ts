@@ -69,9 +69,9 @@ export class DocumentsService {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 25;
     const { actor, departmentId } = await this.access.listScope(principal);
-    const visibleFolders = departmentId === undefined ? null : await this.access.visibleFolderIds(actor);
+    const visibility = await this.access.documentVisibilityFilter(actor);
 
-    const where = this.scopeWhere(departmentId, query, visibleFolders);
+    const where = this.scopeWhere(departmentId, query, visibility);
     where.deletedAt = null;
 
     return this.paginate(where, page, pageSize, departmentId ?? actor.departmentId);
@@ -81,9 +81,9 @@ export class DocumentsService {
     const page = query.page ?? 1;
     const pageSize = query.pageSize ?? 25;
     const { actor, departmentId } = await this.access.listScope(principal);
-    const visibleFolders = departmentId === undefined ? null : await this.access.visibleFolderIds(actor);
+    const visibility = await this.access.documentVisibilityFilter(actor);
 
-    const where = this.scopeWhere(departmentId, query, visibleFolders);
+    const where = this.scopeWhere(departmentId, query, visibility);
     where.deletedAt = { not: null };
 
     return this.paginate(where, page, pageSize, departmentId ?? actor.departmentId);
@@ -660,21 +660,11 @@ export class DocumentsService {
   private scopeWhere(
     departmentId: string | null | undefined,
     query: ListDocumentsQuery,
-    visibleFolders: string[] | null,
+    visibility: Prisma.DocumentWhereInput | undefined,
   ): Prisma.DocumentWhereInput {
     const where: Prisma.DocumentWhereInput = {};
-    if (departmentId === undefined) {
-      if (query.departmentId) where.departmentId = query.departmentId;
-    } else {
-      where.AND = [
-        {
-          OR: [
-            { folderId: { in: visibleFolders ?? [] } },
-            { folderId: null, departmentId: departmentId ?? "" },
-          ],
-        },
-      ];
-    }
+    if (visibility) where.AND = [visibility];
+    if (departmentId === undefined && query.departmentId) where.departmentId = query.departmentId;
     if (query.folderId) where.folderId = query.folderId;
     if (query.status) where.status = query.status;
     if (query.classification) where.classification = query.classification;
