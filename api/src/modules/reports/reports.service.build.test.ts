@@ -76,7 +76,7 @@ function build(actor: { id: string; departmentId: string | null; role: string } 
     documentVisibilityFilter: vi.fn().mockImplementation(async (candidate: { departmentId: string | null }) =>
       candidate.departmentId
         ? { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null, departmentId: candidate.departmentId }] }
-        : undefined,
+        : { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null }] },
     ),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
@@ -913,7 +913,10 @@ describe("ReportsService report tables", () => {
     const scoped = build(MANAGER);
     await builder(scoped.service)("rpt-8", "dept-finance");
     expect(scoped.prisma.legalHold.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { documents: { some: { document: { departmentId: "dept-finance" } } } } }),
+      expect.objectContaining({
+        where: { documents: { some: { document: { departmentId: "dept-finance" } } } },
+        select: expect.objectContaining({ _count: { select: { documents: { where: { document: { departmentId: "dept-finance" } } } } } }),
+      }),
     );
   });
 
@@ -982,7 +985,9 @@ describe("ReportsService summary aggregation", () => {
     await service.summary({ sub: "user-admin" } as never);
 
     expect(prisma.user.count).toHaveBeenCalledWith(undefined);
-    expect(prisma.document.count).toHaveBeenCalledWith({ where: {} });
+    const visibility = { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null }] };
+    expect(prisma.document.count).toHaveBeenCalledWith({ where: visibility });
+    expect(prisma.legalHold.count).toHaveBeenCalledWith({ where: { status: "ACTIVE", documents: { some: { document: visibility } } } });
   });
 
   it("falls back to an UNKNOWN bucket for a group without a status or classification", async () => {

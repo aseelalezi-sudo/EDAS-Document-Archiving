@@ -49,7 +49,7 @@ import {
   toAclPayload,
   withFolderCounts,
 } from "./lib/api-mappers";
-import { usePersistentState } from "./utils/persist";
+import { useDemoPersistentState } from "./utils/persist";
 import { uid } from "./utils/id";
 import {
   SHARED_FOLDERS,
@@ -118,7 +118,7 @@ export interface EntityStore<T> {
 }
 
 function useEntityStore<T extends { id: string }>(key: string, seed: T[]) {
-  const [items, setItems] = usePersistentState<T[]>(key, seed);
+  const [items, setItems] = useDemoPersistentState<T[]>(key, seed);
   const add = (item: Omit<T, "id"> & { id?: string }) => {
     const created = { ...item, id: item.id ?? uid("x") } as T;
     setItems((prev) => [created, ...prev]);
@@ -239,6 +239,11 @@ const seedTrash: TrashItem[] = documents.slice(0, 6).map((d, i) => ({
 }));
 
 export function DocsProvider({ children }: { children: ReactNode }) {
+  const { user } = useApp();
+  return <DocumentStore key={config.useApi ? (user?.id ?? "signed-out") : "demo"}>{children}</DocumentStore>;
+}
+
+function DocumentStore({ children }: { children: ReactNode }) {
   const { user, role, lang, toast, t } = useApp();
   const apiMode = config.useApi;
   const userId = user?.id;
@@ -252,24 +257,24 @@ export function DocsProvider({ children }: { children: ReactNode }) {
     else notifyRef.current("err.api");
     errorRef.current(error);
   };
-  const [docs, setDocs] = usePersistentState<Document[]>("docs", documents);
-  const [taskList, setTaskList] = usePersistentState<TaskItem[]>("tasks", tasks);
-  const [folderList, setFolderList] = usePersistentState<FolderNode[]>("folders", folders);
-  const [retention, setRetention] = usePersistentState<RetentionItem[]>("retention", retentionItems);
-  const [trash, setTrash] = usePersistentState<TrashItem[]>("trash", seedTrash);
-  const [acls, setAcls] = usePersistentState<Record<string, ACLRule[]>>("acls", defaultACLs);
+  const [docs, setDocs] = useDemoPersistentState<Document[]>("docs", documents);
+  const [taskList, setTaskList] = useDemoPersistentState<TaskItem[]>("tasks", tasks);
+  const [folderList, setFolderList] = useDemoPersistentState<FolderNode[]>("folders", folders);
+  const [retention, setRetention] = useDemoPersistentState<RetentionItem[]>("retention", retentionItems);
+  const [trash, setTrash] = useDemoPersistentState<TrashItem[]>("trash", seedTrash);
+  const [acls, setAcls] = useDemoPersistentState<Record<string, ACLRule[]>>("acls", defaultACLs);
   const [aclFailed, setAclFailed] = useState<string[]>([]);
-  const [auditLog, setAuditLog] = usePersistentState<AuditEntry[]>("auditLog", []);
+  const [auditLog, setAuditLog] = useDemoPersistentState<AuditEntry[]>("auditLog", []);
   const [docsMeta, setDocsMeta] = useState<{ loaded: number; total: number }>({ loaded: 0, total: 0 });
   const [docsLoadingMore, setDocsLoadingMore] = useState(false);
   const docsPagesRef = useRef(1);
   const [docsReady, setDocsReady] = useState(!apiMode);
   const [approvals, setApprovals] = useState<ApprovalInstanceDto[]>([]);
   const [approvalsReady, setApprovalsReady] = useState(!apiMode);
-  const [notificationList, setNotificationList] = usePersistentState<Notification[]>("notifications", apiMode ? [] : seedNotifications);
+  const [notificationList, setNotificationList] = useDemoPersistentState<Notification[]>("notifications", apiMode ? [] : seedNotifications);
   const [templates, setTemplates] = useState<ReportTemplate[]>(seedTemplates);
   const [summary, setSummary] = useState<ReportSummaryDto | null>(null);
-  const [systemSettings, setSystemSettings] = usePersistentState<Record<string, string>>("systemSettings", {
+  const [systemSettings, setSystemSettings] = useDemoPersistentState<Record<string, string>>("systemSettings", {
     orgName: "هيئة المؤسسات الحكومية",
     orgNameEn: "Government Entities Authority",
     defaultLang: "ar",

@@ -15,6 +15,11 @@ const health = vi.fn();
 const orgTree = vi.fn();
 const users = vi.fn();
 
+let testRole: ReturnType<typeof useApp>["role"] = "employee";
+vi.mock("../store", async (importOriginal) => {
+  const store = await importOriginal<typeof import("../store")>();
+  return { ...store, useApp: () => ({ ...store.useApp(), role: testRole }) };
+});
 vi.mock("../config", () => ({ config: { apiBaseUrl: "http://localhost:4210/api/v1", oidc: {}, useApi: true } }));
 vi.mock("../lib/domain-api", () => {
   const stub = () => Promise.resolve({ items: [], meta: { total: 0 } });
@@ -127,6 +132,7 @@ function purgePlan(overrides: Partial<StoragePurgeResultDto> = {}): StoragePurge
 
 beforeEach(() => {
   localStorage.clear();
+  testRole = "employee";
   vi.clearAllMocks();
 });
 
@@ -305,7 +311,7 @@ describe("Maintenance storage reconciliation", () => {
 
 describe("Maintenance debris cleanup", () => {
   beforeEach(() => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    testRole = "system_admin";
     storageIntegrity.mockResolvedValue(debrisInventory());
   });
 
@@ -363,7 +369,7 @@ describe("Maintenance debris cleanup", () => {
   });
 
   it("keeps the cleanup entry away from roles that cannot purge", async () => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("employee"));
+    testRole = "employee";
     render(<Maintenance />, { wrapper });
 
     fireEvent.click(screen.getByRole("button", { name: /جرد التخزين/ }));
@@ -469,7 +475,7 @@ describe("Maintenance connection and local data", () => {
   });
 
   it("marks a matching checksum on an unreferenced file", async () => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    testRole = "system_admin";
     storageIntegrity.mockResolvedValue(debrisInventory());
     verifyFile.mockResolvedValue({
       id: "file-9",
@@ -495,27 +501,27 @@ describe("Maintenance connection and local data", () => {
   });
 
   it("clears the local footprint only after the confirmation modal", async () => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    localStorage.setItem("edas.v1.legacy", "1");
     render(<Maintenance />, { wrapper: wrapperWithToasts });
 
     fireEvent.click(screen.getByRole("button", { name: "مسح البيانات المحلية" }));
     expect(screen.getByRole("dialog", { name: "مسح البيانات المحلية" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(localStorage.getItem("edas.v1.role")).not.toBeNull();
+    expect(localStorage.getItem("edas.v1.legacy")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "مسح البيانات المحلية" }));
     const firstDialog = screen.getByRole("dialog", { name: "مسح البيانات المحلية" });
     fireEvent.click(within(firstDialog).getByRole("button", { name: "إلغاء" }));
 
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(localStorage.getItem("edas.v1.role")).not.toBeNull();
+    expect(localStorage.getItem("edas.v1.legacy")).not.toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "مسح البيانات المحلية" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "مسح البيانات المحلية" })).getByRole("button", { name: "مسح" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    expect(localStorage.getItem("edas.v1.role")).toBeNull();
+    expect(localStorage.getItem("edas.v1.legacy")).toBeNull();
     expect(screen.getByTestId("toasts")).toHaveTextContent("تم مسح البيانات المحلية");
     expect(screen.getByRole("button", { name: "مسح البيانات المحلية" })).toBeDisabled();
   });
@@ -523,7 +529,7 @@ describe("Maintenance connection and local data", () => {
 
 describe("Maintenance purge plan controls", () => {
   beforeEach(() => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    testRole = "system_admin";
     storageIntegrity.mockResolvedValue(debrisInventory());
     purgeUnreferencedFiles.mockResolvedValue(purgePlan());
   });

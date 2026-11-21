@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { translations, type Lang } from "./i18n";
-import { usePersistentState } from "./utils/persist";
+import { useDemoPersistentState, usePersistentState } from "./utils/persist";
 import { config } from "./config";
 import { profileToAppUser, roleFromApi } from "./lib/role-bridge";
 import { beginLogin, clearSession, endSession, restoreSession } from "./lib/session";
@@ -66,8 +66,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [lang, setLang] = usePersistentState<Lang>("lang", "ar");
   const [theme, setTheme] = usePersistentState<Theme>("theme", "light");
   const [density, setDensity] = usePersistentState<Density>("density", "comfortable");
-  const [user, setUser] = usePersistentState<User | null>("user", null);
-  const [role, setRole] = usePersistentState<Role>("role", "employee");
+  const [user, setUser] = useDemoPersistentState<User | null>("user", null);
+  const [role, setRole] = useDemoPersistentState<Role>("role", "employee");
   const [sidebarCollapsed, setSidebarCollapsed] = usePersistentState("sidebarCollapsed", false);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [authReady, setAuthReady] = useState(!config.useApi);

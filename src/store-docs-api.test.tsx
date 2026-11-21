@@ -576,6 +576,21 @@ beforeEach(() => {
 });
 
 describe("documents store boot over the API", () => {
+  it("discards legacy business data and keeps connected documents in the current session", async () => {
+    localStorage.setItem("edas.v1.docs", JSON.stringify([{ id: "previous-account-doc" }]));
+    localStorage.setItem("edas.v1.lang", JSON.stringify("en"));
+    const { result } = renderApi();
+    expect(result.current.docs.docs.some((doc) => doc.id === "previous-account-doc")).toBe(false);
+    await waitFor(() => expect(result.current.docs.docs[0]?.id).toBe("doc-api-1"));
+    for (const key of ["docs", "trash", "acls", "auditLog", "user", "role"]) {
+      expect(localStorage.getItem("edas.v1." + key)).toBeNull();
+    }
+    expect(localStorage.getItem("edas.v1.lang")).toBe('"en"');
+    act(() => window.dispatchEvent(new Event("edas:unauthorized")));
+    await waitFor(() => expect(result.current.app.user).toBeNull());
+    expect(result.current.docs.docs.some((doc) => doc.id === "doc-api-1")).toBe(false);
+  });
+
   it("hydrates every remote collection after the session is restored", async () => {
     const { result } = await booted();
 

@@ -129,7 +129,7 @@ function scopedService(actor: { id: string; departmentId: string | null; role: s
     documentVisibilityFilter: vi.fn().mockImplementation(async (candidate: { departmentId: string | null }) =>
       candidate.departmentId
         ? { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null, departmentId: candidate.departmentId }] }
-        : undefined,
+        : { OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null }] },
     ),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
@@ -353,6 +353,19 @@ describe("ReportsService department scope", () => {
     expect(storage.put).toHaveBeenCalled();
     expect(prisma.reportRun.update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ fileId: "file-9" }) }));
     expect(result).toEqual(expect.objectContaining({ id: "run-1" }));
+  });
+
+  it("intersects the schedule department with the auditor's visible folders in an export", async () => {
+    const { service, prisma } = scopedService(AUDIT_ROLE);
+    prisma.reportSchedule.findUnique.mockResolvedValue({ id: "sch-1", departmentId: "dept-finance", recipients: [] });
+    prisma.reportRun.create.mockResolvedValue({ id: "run-8", reportType: "rpt-2", format: "csv", scheduleId: "sch-1" });
+    await service.createRun({ sub: "user-aud" } as never, { scheduleId: "sch-1", reportType: "rpt-2", format: "csv" });
+    expect(prisma.document.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        departmentId: "dept-finance",
+        AND: [{ OR: [{ folderId: { in: ["folder-visible"] } }, { folderId: null }] }],
+      }),
+    }));
   });
 
   it("scopes the open task counter to the requester like the task list does", async () => {

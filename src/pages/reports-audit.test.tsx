@@ -14,6 +14,11 @@ const verifyAuditChain = vi.fn();
 const recordAuditChainBaseline = vi.fn();
 const config = vi.hoisted(() => ({ apiBaseUrl: "http://localhost:4210/api/v1", oidc: {}, useApi: true }));
 
+let testRole: ReturnType<typeof useApp>["role"] = "employee";
+vi.mock("../store", async (importOriginal) => {
+  const store = await importOriginal<typeof import("../store")>();
+  return { ...store, useApp: () => ({ ...store.useApp(), role: testRole }) };
+});
 vi.mock("../config", () => ({ config }));
 vi.mock("../lib/domain-api", () => {
   const stub = () => Promise.resolve({ items: [], meta: { total: 0 } });
@@ -111,6 +116,7 @@ const wrapperWithToasts = ({ children }: { children: ReactNode }) => (
 
 beforeEach(() => {
   localStorage.clear();
+  testRole = "employee";
   vi.clearAllMocks();
   config.useApi = true;
   auditEvents.mockResolvedValue({ items: [], meta: { total: 0, success: 0, failure: 0, entityTypes: [] } });
@@ -161,7 +167,7 @@ describe("AuditTrail chain verification", () => {
   });
 
   it("separates acknowledged historical damage from a new break", async () => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    testRole = "system_admin";
     verifyAuditChain.mockResolvedValue(
       report({
         valid: false,
@@ -193,7 +199,7 @@ describe("AuditTrail chain verification", () => {
   });
 
   it("records the damage register when the administrator acknowledges it", async () => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    testRole = "system_admin";
     verifyAuditChain.mockResolvedValue(report({ valid: false, breakCount: 1, newBreakCount: 1, alarm: true, breaks: [broken] }));
     recordAuditChainBaseline.mockResolvedValue(
       report({ valid: false, breakCount: 1, knownBreakCount: 1, alarm: false, breaks: [{ ...broken, known: true }] }),
@@ -210,7 +216,7 @@ describe("AuditTrail chain verification", () => {
   });
 
   it("hides the acknowledgement action from a non-administrator", async () => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("employee"));
+    testRole = "employee";
     verifyAuditChain.mockResolvedValue(report({ valid: false, alarm: true, breakCount: 1, newBreakCount: 1, breaks: [broken] }));
     render(<AuditTrail />, { wrapper });
 
@@ -245,7 +251,7 @@ describe("AuditTrail chain verification", () => {
 
 describe("AuditTrail chain acknowledgement edge cases", () => {
   it("keeps the acknowledgement armed when the baseline write is refused", async () => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    testRole = "system_admin";
     verifyAuditChain.mockResolvedValue(report({ valid: false, alarm: true, breakCount: 1, newBreakCount: 1, breaks: [broken] }));
     recordAuditChainBaseline.mockRejectedValue(new ApiError(403, "FORBIDDEN", "Missing capability: audit.baseline"));
     render(<AuditTrail />, { wrapper: wrapperWithToasts });
@@ -261,7 +267,7 @@ describe("AuditTrail chain acknowledgement edge cases", () => {
   });
 
   it("cancels the armed acknowledgement without writing a baseline", async () => {
-    localStorage.setItem("edas.v1.role", JSON.stringify("system_admin"));
+    testRole = "system_admin";
     verifyAuditChain.mockResolvedValue(report({ valid: false, alarm: true, breakCount: 1, newBreakCount: 1, breaks: [broken] }));
     render(<AuditTrail />, { wrapper });
 
