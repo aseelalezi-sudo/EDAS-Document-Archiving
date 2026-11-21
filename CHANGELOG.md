@@ -4,6 +4,35 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-21
+
+Fixes and operational readiness only; no structural changes. `M1`, `L2` and `L3` are deferred to `0.2.0`.
+
+### Security
+
+- Pin `effect` to `^3.22.5` in the API `overrides` to clear `GHSA-7589-6fvf-x4pw` (ReDoS). `@prisma/config` pins the vulnerable `effect@3.21.0` exactly and even `7.10.1` still pins `3.20.0`, so `npm audit fix` and a Prisma upgrade alone cannot clear it; the production dependency audit now reports zero vulnerabilities in both packages.
+
+### Added
+
+- Alertmanager renders its receiver from `ALERT_WEBHOOK_URL` or `ALERT_WEBHOOK_URL_FILE` (Docker-secret friendly) at startup, over http/https only, without logging the URL. With no configuration it keeps the no-integration default and states that alerts are recorded but not delivered. Validated with `amtool` and a real local delivery test.
+- Encrypted off-site backups: `scripts/backup/offsite.sh` encrypts the dump and object archive, uploads to an S3-compatible bucket, re-reads the object to verify its sha256, checks the key exists, and only then applies a configurable retention policy. It refuses to upload without a passphrase and never uploads plaintext.
+- `scripts/backup/verify.sh` decrypts encrypted backups before the isolated restore, and `verify-latest.sh` drives the newest backup for scheduled drills.
+- systemd `edas-backup` (nightly) and `edas-backup-verify` (weekly restore drill) service/timer units with an example environment file.
+- CI job that checks shell syntax, runs the off-site self-test against a local fake S3, and validates the rendered Alertmanager config with `amtool`.
+- `.nvmrc` and `engines.node >= 22`.
+
+### Changed
+
+- Audit chain verification (`verifyChain` / baseline creation) streams the ledger in `seq`-ordered batches of 1,000 with a cursor instead of loading every event at once, keeping verification memory bounded while preserving break, fork and gap detection.
+- The SPA coverage suite uses a 20s test timeout on every machine, matching CI, so coverage runs under load no longer fail slow-but-correct tests; no retries were added.
+- Renamed `api/vitest.config.ts` to `api/vitest.config.mts` so Vitest no longer warns about ESM syntax in a CommonJS-loaded config.
+- `README.md` now describes the real audit gate (`npm audit --omit=dev` blocking, full tree advisory) instead of claiming the full-tree audit blocks the build.
+
+### Operational notes
+
+- Alert delivery is verified against a local receiver only; production needs the same check against the organisation endpoint.
+- Off-site backup round-trip is verified against a local fake S3 only; production needs one restore from the real external bucket before the copy is considered production-ready.
+
 ## [0.1.0] - 2026-11-18
 
 The first security-hardened pre-production baseline.

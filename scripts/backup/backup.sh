@@ -46,9 +46,15 @@ echo "Writing manifest"
   } >MANIFEST
 )
 
+if [[ -n "${BACKUP_OFFSITE_BUCKET:-}" ]]; then
+  BACKUP_DIR="$OUT" bash "$ROOT/scripts/backup/offsite.sh"
+else
+  echo "Off-site copy skipped: BACKUP_OFFSITE_BUCKET is not set (this is a local backup only)"
+fi
+
 if [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]] && [[ "$RETENTION_DAYS" -gt 0 ]]; then
   find "${BACKUP_DIR:-$ROOT/backups}" -mindepth 1 -maxdepth 1 -type d -mtime "+$RETENTION_DAYS" -print -exec rm -rf {} +
 fi
 
 echo "Backup complete: $OUT"
-echo "Copy this directory off-site and verify it with scripts/backup/verify.sh $OUT"
+echo "Verify restore with scripts/backup/verify.sh $OUT"

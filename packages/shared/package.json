@@ -1,11 +1,13 @@
 {
   "name": "@edas/shared",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Shared EDAS contracts: roles, permission matrix, and API DTOs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit"

@@ -37,7 +37,7 @@ Always verify changes with:
   (upserts by code/name), leaves documents untouched, and runs `api/prisma/seed.mts` through Node's native
   TypeScript support (Node 22.18+).
 - Verify backend changes with: `cd api && npm run typecheck && npm run lint && npm test && npm audit --audit-level=high && npm run build`.
-  Coverage is enforced by `api/vitest.config.ts` (thresholds 98 statements / 98 branches / 98 functions / 98 lines);
+  Coverage is enforced by `api/vitest.config.mts` (thresholds 98 statements / 98 branches / 98 functions / 98 lines);
   run it with `cd api && npm run test:coverage` (the root `npm run api:test:coverage` builds `@edas/shared` first).
   The SPA gate lives in the root `vitest.config.ts` (74 / 67 / 69 / 76); the SPA job in CI runs
   `npm run test:coverage`, so the threshold is enforced on every push, not just locally.
@@ -46,8 +46,11 @@ Always verify changes with:
   ownerless `PRIVATE` folders fall back to department scope. `DENY` always wins and `ALLOW` never
   exceeds the role ceiling. Changing scope or `aclInherit` requires `MANAGE_SCOPE` (system admin or
   archivist). Do not loosen these rules without a product decision.
-- Backup/restore: `scripts/backup/backup.sh` and `scripts/backup/verify.sh`; the runbook and RPO/RTO
-  targets live in `docs/backup-restore.md`. Release/version policy is in `docs/release-process.md`
+- Backup/restore: `scripts/backup/backup.sh` and `scripts/backup/verify.sh`; `scripts/backup/offsite.sh`
+  encrypts and uploads to S3-compatible storage (refuses without a passphrase, verifies the remote
+  sha256, then prunes by `BACKUP_OFFSITE_RETENTION_DAYS`), `verify-latest.sh` drives the restore drill,
+  and `infra/systemd/` holds the timers. The runbook, operational requirements and RPO/RTO targets live
+  in `docs/backup-restore.md`; the self-test runs in CI. Release/version policy is in `docs/release-process.md`
   and `CHANGELOG.md`; the version is not tagged without explicit approval.
 - Repair documents whose stored `departmentId` drifted from their folder with
   `cd api && npm run build && npm run maintenance:reconcile-departments` (dry run; `-- --apply` writes the
@@ -115,6 +118,7 @@ Always verify changes with:
   resource origin is needed. `VITE_REQUIRE_API=true` fails a deployed build that lacks the API config.
 - ACL replacement is limited to `SYSTEM_ADMIN` and `ARCHIVIST` through `canManageAcl` in
   `packages/shared`; do not widen it without an explicit product decision.
+- Node.js 22 is the supported runtime (`.nvmrc`); the API and root packages declare `engines.node >= 22`. The SPA coverage suite runs with a 20s test timeout on every machine so `--coverage` under load does not fail slow-but-correct tests.
 - Node tooling note: `eslint-plugin-jsx-a11y` declares a peer range up to ESLint 9 while
   the repo uses ESLint 10, so dependency installs may need `--legacy-peer-deps`. When
   doing so, keep `@testing-library/dom` pinned (it is a peer dep that npm drops in that mode).

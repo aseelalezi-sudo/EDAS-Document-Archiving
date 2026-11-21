@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly EDAS backup restore drill
+
+[Timer]
+OnCalendar=Sun *-*-* 05:00:00
+RandomizedDelaySec=30m
+Persistent=true
+Unit=edas-backup-verify.service
+
+[Install]
+WantedBy=timers.target

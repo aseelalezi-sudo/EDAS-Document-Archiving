@@ -453,4 +453,50 @@ describe("AuditService.verifyChain", () => {
 
     expect(report).toMatchObject({ valid: true, detailSignedEvents: 1 });
   });
+
+  it("streams a long chain in batches and keeps the report identical", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    let previousHash: string | null = null;
+    for (let seq = 1; seq <= 1001; seq += 1) {
+      const row = event(seq, previousHash);
+      rows.push(row);
+      previousHash = row.hash as string;
+    }
+    const { service, prisma } = buildService(rows);
+    prisma.auditEvent.findMany.mockImplementation(async ({ take, cursor }: { take: number; cursor?: { seq: bigint } }) => {
+      const start = cursor ? rows.findIndex((row) => row.seq === cursor.seq) + 1 : 0;
+      return rows.slice(start, start + take);
+    });
+
+    const report = await service.verifyChain();
+
+    expect(prisma.auditEvent.findMany).toHaveBeenCalledTimes(2);
+    expect(prisma.auditEvent.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({ take: 1000 }));
+    expect(prisma.auditEvent.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ take: 1000, cursor: { seq: BigInt(1000) }, skip: 1 }),
+    );
+    expect(report).toMatchObject({ valid: true, events: 1001, maxSeq: 1001, sequenceGaps: 0, breakCount: 0 });
+  });
+
+  it("detects a tampered event that falls in the second batch", async () => {
+    const rows: Array<Record<string, unknown>> = [];
+    let previousHash: string | null = null;
+    for (let seq = 1; seq <= 1001; seq += 1) {
+      const row = event(seq, previousHash);
+      rows.push(row);
+      previousHash = row.hash as string;
+    }
+    rows[1000] = { ...rows[1000], hash: "tampered-in-batch-2" };
+    const { service, prisma } = buildService(rows);
+    prisma.auditEvent.findMany.mockImplementation(async ({ take, cursor }: { take: number; cursor?: { seq: bigint } }) => {
+      const start = cursor ? rows.findIndex((row) => row.seq === cursor.seq) + 1 : 0;
+      return rows.slice(start, start + take);
+    });
+
+    const report = await service.verifyChain();
+
+    expect(report.valid).toBe(false);
+    expect(report.breaks[0]).toMatchObject({ seq: 1001, kind: "hash_mismatch", found: "tampered-in-batch-2" });
+  });
 });

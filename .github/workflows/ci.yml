@@ -103,6 +103,31 @@ jobs:
           cache-from: type=gha,scope=api-image
           cache-to: type=gha,scope=api-image,mode=max
 
+  backup:
+    name: Backup and alerting scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Shell syntax
+        run: bash -n scripts/backup/*.sh infra/monitoring/alertmanager-entrypoint.sh
+      - name: Off-site backup self-test (local fake S3)
+        run: bash scripts/backup/offsite.test.sh
+      - name: Render and validate the Alertmanager webhook config
+        run: |
+          mkdir -p "$RUNNER_TEMP/am"
+          ALERTMANAGER_RENDER_ONLY=1 \
+            ALERTMANAGER_SRC_DIR=infra/monitoring \
+            ALERTMANAGER_CONFIG_FILE="$RUNNER_TEMP/am/alertmanager.yml" \
+            ALERT_WEBHOOK_URL=http://127.0.0.1:9099/hook \
+            sh infra/monitoring/alertmanager-entrypoint.sh
+          docker run --rm --entrypoint /bin/amtool \
+            -v "$RUNNER_TEMP/am:/cfg:ro" \
+            prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba \
+            check-config /cfg/alertmanager.yml
+
   browser:
     name: Browser smoke
     runs-on: ubuntu-latest

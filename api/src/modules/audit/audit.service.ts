@@ -75,6 +75,7 @@ export interface AuditChainReport {
 /** The advisory lock key every writer must hold while it reads the chain head and appends to it. */
 const CHAIN_LOCK = "edas.audit.chain";
 const BREAK_REPORT_LIMIT = 50;
+const CHAIN_BATCH_SIZE = 1000;
 
 /** Version 1 covers the ledger columns; version 2 additionally covers the canonicalised `detail` JSON. */
 const SIGNED_DETAIL_HASH_VERSION = 2;
@@ -202,7 +203,7 @@ export class AuditService {
   }
 
   async verifyChain(): Promise<AuditChainReport> {
-    const analysis = this.collect(await this.loadChain());
+    const analysis = await this.analyzeChain();
     const baseline = await this.readBaseline();
     const knownBreaks = new Set(baseline?.breaks ?? []);
     const knownForks = new Set(baseline?.forks ?? []);
@@ -263,8 +264,7 @@ export class AuditService {
    * new rather than another instance of the historical damage that predates the serialised appender.
    */
   async recordBaseline(actor: { id?: string | null; name?: string | null } = {}): Promise<AuditChainReport> {
-    const rows = await this.loadChain();
-    const analysis = this.collect(rows);
+    const analysis = await this.analyzeChain();
 
     await this.record({
       action: BASELINE_ACTION,
@@ -283,79 +283,101 @@ export class AuditService {
     return this.verifyChain();
   }
 
-  private loadChain() {
-    return this.prisma.auditEvent.findMany({
-      orderBy: { seq: "asc" },
-      select: {
-        id: true,
-        seq: true,
-        ts: true,
-        action: true,
-        entityType: true,
-        entityId: true,
-        actorId: true,
-        result: true,
-        detail: true,
-        hashVersion: true,
-        prevHash: true,
-        hash: true,
-      },
-    });
+  private async *chainBatches(): AsyncGenerator<ChainRow[]> {
+    let cursor: bigint | undefined;
+    while (true) {
+      const batch = await this.prisma.auditEvent.findMany({
+        take: CHAIN_BATCH_SIZE,
+        ...(cursor === undefined ? {} : { cursor: { seq: cursor }, skip: 1 }),
+        orderBy: { seq: "asc" },
+        select: {
+          id: true,
+          seq: true,
+          ts: true,
+          action: true,
+          entityType: true,
+          entityId: true,
+          actorId: true,
+          result: true,
+          detail: true,
+          hashVersion: true,
+          prevHash: true,
+          hash: true,
+        },
+      });
+      if (batch.length === 0) return;
+      yield batch;
+      if (batch.length < CHAIN_BATCH_SIZE) return;
+      cursor = batch[batch.length - 1].seq;
+    }
   }
 
-  private collect(rows: ChainRow[]) {
+  /** Streams the ledger in `seq` order so verification memory stays bounded by one batch (plus the fork index). */
+  private async analyzeChain() {
     const breakEntries: ChainBreakEntry[] = [];
     const childrenOf = new Map<string, number[]>();
     let genesisCount = 0;
     let firstBrokenSeq: number | null = null;
     let detailSignedEvents = 0;
     let detailSignedFromSeq: number | null = null;
+    let events = 0;
+    let maxSeq: number | null = null;
+    let previousHash: string | null = null;
+    let hasPrevious = false;
 
-    rows.forEach((row, index) => {
-      if ((row.hashVersion ?? 1) >= SIGNED_DETAIL_HASH_VERSION) {
-        detailSignedEvents += 1;
-        if (detailSignedFromSeq === null) detailSignedFromSeq = Number(row.seq);
+    for await (const batch of this.chainBatches()) {
+      for (const row of batch) {
+        const seq = Number(row.seq);
+        if ((row.hashVersion ?? 1) >= SIGNED_DETAIL_HASH_VERSION) {
+          detailSignedEvents += 1;
+          if (detailSignedFromSeq === null) detailSignedFromSeq = seq;
+        }
+        if (row.prevHash === null) genesisCount += 1;
+        else childrenOf.set(row.prevHash, [...(childrenOf.get(row.prevHash) ?? []), seq]);
+
+        const expectedPrevHash = hasPrevious ? previousHash : null;
+        const expectedHash = chainHash(row.prevHash, chainPayload(row));
+        const kind: AuditBreakKind | null =
+          row.hash === null
+            ? "missing_hash"
+            : row.hash !== expectedHash
+              ? "hash_mismatch"
+              : row.prevHash !== expectedPrevHash
+                ? "broken_link"
+                : null;
+
+        if (kind) {
+          if (firstBrokenSeq === null) firstBrokenSeq = seq;
+          const expected = kind === "broken_link" ? expectedPrevHash : expectedHash;
+          breakEntries.push({
+            seq,
+            id: row.id,
+            ts: row.ts.toISOString(),
+            action: row.action,
+            entityType: row.entityType,
+            kind,
+            expected,
+            found: row.hash,
+            fingerprint: breakFingerprint(seq, kind, row.hash, expected),
+          });
+        }
+
+        hasPrevious = true;
+        previousHash = row.hash;
+        events += 1;
+        maxSeq = seq;
       }
-      if (row.prevHash === null) genesisCount += 1;
-      else childrenOf.set(row.prevHash, [...(childrenOf.get(row.prevHash) ?? []), Number(row.seq)]);
-
-      const expectedPrevHash = index === 0 ? null : (rows[index - 1].hash ?? null);
-      const expectedHash = chainHash(row.prevHash, chainPayload(row));
-      const kind: AuditBreakKind | null =
-        row.hash === null
-          ? "missing_hash"
-          : row.hash !== expectedHash
-            ? "hash_mismatch"
-            : row.prevHash !== expectedPrevHash
-              ? "broken_link"
-              : null;
-
-      if (!kind) return;
-      if (firstBrokenSeq === null) firstBrokenSeq = Number(row.seq);
-      const expected = kind === "broken_link" ? expectedPrevHash : expectedHash;
-      breakEntries.push({
-        seq: Number(row.seq),
-        id: row.id,
-        ts: row.ts.toISOString(),
-        action: row.action,
-        entityType: row.entityType,
-        kind,
-        expected,
-        found: row.hash,
-        fingerprint: breakFingerprint(Number(row.seq), kind, row.hash, expected),
-      });
-    });
+    }
 
     const forkEntries: ChainForkEntry[] = [...childrenOf.entries()]
       .filter(([, seqs]) => seqs.length > 1)
       .map(([prevHash, seqs]) => ({ prevHash, children: seqs.length, seqs, fingerprint: forkFingerprint(prevHash, seqs) }))
       .sort((a, b) => b.children - a.children);
 
-    const maxSeq = rows.length > 0 ? Number(rows[rows.length - 1].seq) : null;
     return {
-      events: rows.length,
+      events,
       maxSeq,
-      sequenceGaps: maxSeq === null ? 0 : maxSeq - rows.length,
+      sequenceGaps: maxSeq === null ? 0 : maxSeq - events,
       breakCount: breakEntries.length,
       breakEntries,
       forkEntries,

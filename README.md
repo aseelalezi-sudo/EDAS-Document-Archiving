@@ -642,13 +642,14 @@ Use the `pg_restore` major version that matches the `pg_dump` that produced the 
 
 ### 📦 Dependencies and `npm audit`
 
-`npm audit --audit-level=high` runs in CI for both packages after install, so a new high or critical advisory fails the build. Both trees were audited and updated; the fixes are pinned in `overrides` because several vulnerable packages are transitive and their parents have not released patched versions yet:
+`npm audit --omit=dev --audit-level=high` is the blocking CI gate for production dependencies in both packages; the full-tree audit still runs but is advisory, so a build-tool advisory cannot silently turn the pipeline red. Both trees were audited and updated; the fixes are pinned in `overrides` because several vulnerable packages are transitive and their parents have not released patched versions yet:
 
-| Override                                                                                      | Why                                                                         |
-| --------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `minimatch@^11` (in `eslint`, `@eslint/config-array`, `@typescript-eslint/typescript-estree`) | the only patched release (11.0.1+) is a major the parents have not adopted  |
-| `esbuild@^0.28` · `nanoid@^3.3.20` · `source-map-js@^1.2.2`                                   | patched releases under `vite` and `postcss`                                 |
-| `body-parser@^2.4` · `fast-uri@^3.1.9` · `glob@^14` · `deepmerge-ts@^8`                       | patched releases under `express`, `ajv`, `@nestjs/cli` and `@prisma/config` |
+| Override                                                                                      | Why                                                                                                                                                              |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `minimatch@^11` (in `eslint`, `@eslint/config-array`, `@typescript-eslint/typescript-estree`) | the only patched release (11.0.1+) is a major the parents have not adopted                                                                                       |
+| `esbuild@^0.28` · `nanoid@^3.3.20` · `source-map-js@^1.2.2`                                   | patched releases under `vite` and `postcss`                                                                                                                      |
+| `body-parser@^2.4` · `fast-uri@^3.1.9` · `glob@^14` · `deepmerge-ts@^8`                       | patched releases under `express`, `ajv`, `@nestjs/cli` and `@prisma/config`                                                                                      |
+| `effect@^3.22.5`                                                                              | fixes `GHSA-7589-6fvf-x4pw` (ReDoS); `@prisma/config` pins the vulnerable `3.21.0` exactly and even `7.10.1` pins `3.20.0`, so no Prisma upgrade alone clears it |
 
 `vite` was upgraded to `7.3.8` and `@nestjs/platform-express` to `11.2.9` (which pins `multer@2.5.0`). The three remaining advisories are **low** and limited to the build toolchain: `deepmerge` (`>=4.2.0`) has never published a fix, and it only arrives through `@nestjs/cli` → `fork-ts-checker-webpack-plugin`, which is used while building, not at runtime. Removing them needs `@nestjs/cli` 12, which requires TypeScript 6 and `@nestjs/schematics` 12 — a toolchain migration, not a patch. Revisit the overrides once `eslint`, `@typescript-eslint` and `@nestjs/cli` ship the patched transitives themselves.
 
