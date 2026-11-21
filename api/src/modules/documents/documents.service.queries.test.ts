@@ -153,7 +153,7 @@ function buildService() {
     isGlobal: vi.fn().mockReturnValue(false),
     assertDepartmentScope: vi.fn().mockResolvedValue(undefined),
     permissionsFor: vi.fn().mockResolvedValue(new Set(["VIEW", "EDIT", "DELETE", "APPROVE", "CREATE"])),
-    visibleFolderIds: vi.fn().mockResolvedValue(["folder-1"]),
+    documentVisibilityFilter: vi.fn().mockResolvedValue({ OR: [{ folderId: { in: ["folder-1"] } }, { folderId: null, departmentId: "dept-1" }] }),
   };
   const audit = { record: vi.fn().mockResolvedValue(undefined) };
   const storage = { remove: vi.fn().mockResolvedValue(undefined) };
@@ -226,7 +226,7 @@ describe("DocumentsService listing", () => {
       category: "contract",
       tags: { has: "مالية" },
     });
-    expect(args.where.AND).toBeUndefined();
+    expect(args.where.AND).toEqual([await access.documentVisibilityFilter()]);
     expect(args.where.OR).toHaveLength(7);
     expect(result.meta).toEqual({ page: 3, pageSize: 10, total: 1, departmentId: null });
   });
@@ -266,7 +266,7 @@ describe("DocumentsService listing", () => {
 
     const args = prisma.document.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
     expect(args.where.departmentId).toBeUndefined();
-    expect(args.where.AND).toBeUndefined();
+    expect(args.where.AND).toEqual([await access.documentVisibilityFilter()]);
   });
 });
 
