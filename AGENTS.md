@@ -46,8 +46,11 @@ Always verify changes with:
   ownerless `PRIVATE` folders fall back to department scope. `DENY` always wins and `ALLOW` never
   exceeds the role ceiling. Changing scope or `aclInherit` requires `MANAGE_SCOPE` (system admin or
   archivist). Do not loosen these rules without a product decision.
-- Backup/restore: `scripts/backup/backup.sh` and `scripts/backup/verify.sh`; the runbook and RPO/RTO
-  targets live in `docs/backup-restore.md`. Release/version policy is in `docs/release-process.md`
+- Backup/restore: `scripts/backup/backup.sh` and `scripts/backup/verify.sh`; `scripts/backup/offsite.sh`
+  encrypts and uploads to S3-compatible storage (refuses without a passphrase, verifies the remote
+  sha256, then prunes by `BACKUP_OFFSITE_RETENTION_DAYS`), `verify-latest.sh` drives the restore drill,
+  and `infra/systemd/` holds the timers. The runbook, operational requirements and RPO/RTO targets live
+  in `docs/backup-restore.md`; the self-test runs in CI. Release/version policy is in `docs/release-process.md`
   and `CHANGELOG.md`; the version is not tagged without explicit approval.
 - Repair documents whose stored `departmentId` drifted from their folder with
   `cd api && npm run build && npm run maintenance:reconcile-departments` (dry run; `-- --apply` writes the
