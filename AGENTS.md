@@ -115,6 +115,7 @@ Always verify changes with:
   resource origin is needed. `VITE_REQUIRE_API=true` fails a deployed build that lacks the API config.
 - ACL replacement is limited to `SYSTEM_ADMIN` and `ARCHIVIST` through `canManageAcl` in
   `packages/shared`; do not widen it without an explicit product decision.
+- Node.js 22 is the supported runtime (`.nvmrc`); the API and root packages declare `engines.node >= 22`. The SPA coverage suite runs with a 20s test timeout on every machine so `--coverage` under load does not fail slow-but-correct tests.
 - Node tooling note: `eslint-plugin-jsx-a11y` declares a peer range up to ESLint 9 while
   the repo uses ESLint 10, so dependency installs may need `--legacy-peer-deps`. When
   doing so, keep `@testing-library/dom` pinned (it is a peer dep that npm drops in that mode).

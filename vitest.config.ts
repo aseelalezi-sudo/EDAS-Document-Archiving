@@ -7,7 +7,6 @@ import { defineConfig } from "vitest/config";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const isCI = Boolean(process.env.CI);
 const cores = availableParallelism();
 
 export default defineConfig({
@@ -25,7 +24,7 @@ export default defineConfig({
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}", "packages/**/*.{test,spec}.ts"],
     css: false,
-    ...(isCI ? { testTimeout: 20_000 } : {}),
+    testTimeout: 20_000,
     maxWorkers: Math.min(8, Math.max(2, cores)),
     coverage: {
       provider: "v8",

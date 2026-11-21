@@ -5,7 +5,7 @@
   "description": "EDAS document archiving API (NestJS + Prisma)",
   "license": "UNLICENSED",
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "scripts": {
     "build": "nest build",
