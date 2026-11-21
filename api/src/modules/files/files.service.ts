@@ -205,11 +205,16 @@ export class FilesService {
       throw new BadRequestException(`Stored content type ${stored.mimeType} does not match the presigned type ${intent.mimeType}`);
     }
 
-    const digest = await this.storage.sha256(dto.storageKey, stored.sizeBytes);
+    if (!stored.etag) throw new BadRequestException("Storage did not identify the uploaded object");
+    const storageKey = `documents/sealed/${intent.id}/${randomUUID()}${extname(dto.storageKey)}`;
+    await this.storage.copyUpload(dto.storageKey, storageKey, stored.etag);
+    const digest = await this.storage.sha256(storageKey, stored.sizeBytes);
     if (!digest || digest.sizeBytes !== stored.sizeBytes) {
+      await this.discardUploadCopy(storageKey);
       throw new BadRequestException("Uploaded object could not be read for verification");
     }
     if (digest.checksum !== declaredChecksum) {
+      await this.discardUploadCopy(storageKey);
       throw new BadRequestException("Uploaded file does not match the declared checksum");
     }
     const checksumSha256 = digest.checksum;
@@ -220,7 +225,7 @@ export class FilesService {
       return tx.fileObject.create({
         data: {
           bucket: this.storage.bucketName,
-          storageKey: dto.storageKey,
+          storageKey,
           originalName,
           mimeType: intent.mimeType,
           sizeBytes: BigInt(stored.sizeBytes),
@@ -228,7 +233,11 @@ export class FilesService {
           uploadedById: actor.id,
         },
       });
+    }).catch(async (error: unknown) => {
+      if (error instanceof ConflictException) await this.discardUploadCopy(storageKey);
+      throw error;
     });
+    await this.discardUploadCopy(dto.storageKey);
 
     await this.audit.record({
       action: "file.register",
@@ -236,7 +245,7 @@ export class FilesService {
       entityId: created.id,
       actorId: actor.id,
       departmentId: actor.departmentId,
-      detail: { storageKey: dto.storageKey, mimeType: created.mimeType, sizeBytes: Number(created.sizeBytes) },
+      detail: { storageKey, mimeType: created.mimeType, sizeBytes: Number(created.sizeBytes) },
     });
 
     return {
@@ -666,7 +675,29 @@ export class FilesService {
     };
   }
 
+  private async discardUploadCopy(key: string): Promise<void> {
+    try {
+      await this.storage.remove(key);
+    } catch (error) {
+      this.logger.warn(`Upload cleanup deferred for ${key}: ${(error as Error).message}`);
+    }
+  }
+
   private async inventory(): Promise<Inventory> {
+    const scanLimit = Number(this.config.get<string>("FILES_INVENTORY_SCAN_LIMIT")) || INTEGRITY_SCAN_LIMIT;
+    const listing = await this.storage.listKeys("", scanLimit);
+    const pendingByKey = new Map<string, string>();
+    for (const key of listing.keys) {
+      const match = /^documents\/sealed\/([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\//i.exec(key);
+      if (match) pendingByKey.set(key, match[1]);
+    }
+    const pending = pendingByKey.size
+      ? await this.prisma.uploadIntent.findMany({
+          where: { id: { in: [...new Set(pendingByKey.values())] }, consumedAt: null },
+          select: { id: true },
+        })
+      : [];
+    const pendingIds = new Set(pending.map((intent) => intent.id));
     const files = await this.prisma.fileObject.findMany({
       include: { versions: { select: { documentId: true } } },
     });
@@ -678,13 +709,11 @@ export class FilesService {
     const referenced = new Set([...attachedToDocuments.map((file) => file.id), ...attachedToReportRuns.map((file) => file.id)]);
     const unreferenced = files.filter((file) => !referenced.has(file.id));
 
-    const scanLimit = Number(this.config.get<string>("FILES_INVENTORY_SCAN_LIMIT")) || INTEGRITY_SCAN_LIMIT;
-    const listing = await this.storage.listKeys("", scanLimit);
     const listed = new Set(listing.keys);
     const fileKeys = new Set(files.map((file) => file.storageKey));
     const listingFailed = Boolean(listing.error);
     const missing = listingFailed ? [] : files.filter((file) => !listed.has(file.storageKey));
-    const orphans = listingFailed ? [] : listing.keys.filter((key) => !fileKeys.has(key));
+    const orphans = listingFailed ? [] : listing.keys.filter((key) => !fileKeys.has(key) && !pendingIds.has(pendingByKey.get(key) ?? ""));
 
     return {
       files,

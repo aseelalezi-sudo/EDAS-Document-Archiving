@@ -93,7 +93,7 @@ function buildService() {
     documentVersion: { findMany: vi.fn(), deleteMany: vi.fn() },
     fileObject: { deleteMany: vi.fn() },
     legalHoldDocument: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
-    auditEvent: { findMany: vi.fn() },
+    auditEvent: { findFirst: vi.fn() },
     $executeRaw: vi.fn().mockResolvedValue(1),
     $transaction: vi.fn().mockResolvedValue([{ id: "item-1" }, { id: "doc-1", status: "DISPOSED" }]),
   };
@@ -205,17 +205,13 @@ describe("RetentionService disposal", () => {
 
   it("reads the certificate back from the immutable audit event", async () => {
     const { service, prisma } = buildService();
-    prisma.auditEvent.findMany.mockResolvedValue([
-      { ...auditEvent, detail: { ...auditEvent.detail, retentionItemId: "item-other" } },
-      auditEvent,
-    ]);
+    prisma.auditEvent.findFirst.mockResolvedValueOnce(auditEvent).mockResolvedValueOnce(null);
 
     const certificate = await service.certificate({ sub: "user-1", username: "sara", roles: [] } as never, "item-1");
 
-    expect(prisma.auditEvent.findMany).toHaveBeenCalledWith({
-      where: { entityType: "Document", entityId: "doc-1", action: "retention.destroy" },
-      orderBy: { ts: "desc" },
-      take: 20,
+    expect(prisma.auditEvent.findFirst).toHaveBeenCalledWith({
+      where: { entityType: "Document", entityId: "doc-1", action: "retention.destroy", detail: { path: ["retentionItemId"], equals: "item-1" } },
+      orderBy: { seq: "desc" },
     });
     expect(certificate.retentionItemId).toBe("item-1");
     expect(certificate.certificateRef).toBe("DES-0F1E2D3C-2026");
@@ -225,7 +221,7 @@ describe("RetentionService disposal", () => {
 
   it("reports a missing certificate when the document was never destroyed", async () => {
     const { service, prisma } = buildService();
-    prisma.auditEvent.findMany.mockResolvedValue([]);
+    prisma.auditEvent.findFirst.mockResolvedValue(null);
 
     await expect(service.certificate({ sub: "user-1", username: "sara", roles: [] } as never, "item-1")).rejects.toThrow(
       "No destruction certificate for this retention item",
@@ -315,7 +311,7 @@ function edgeService(options: { actor?: Record<string, unknown>; itemRow?: Recor
     documentVersion: { findMany: vi.fn().mockResolvedValue([]), deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     fileObject: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
     legalHoldDocument: { count: vi.fn().mockResolvedValue(0), findMany: vi.fn().mockResolvedValue([]) },
-    auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
+    auditEvent: { findFirst: vi.fn().mockResolvedValue([]) },
     $executeRaw: vi.fn().mockResolvedValue(1),
     $transaction: vi.fn(),
   };
@@ -530,27 +526,24 @@ describe("RetentionService certificate edges", () => {
 
   it("reports an event that carries no destruction record", async () => {
     const { service, prisma } = edgeService();
-    prisma.auditEvent.findMany.mockResolvedValue([{ ...auditEvent, detail: { retentionItemId: "item-1" } }]);
+    prisma.auditEvent.findFirst.mockResolvedValue({ ...auditEvent, detail: { retentionItemId: "item-1" } });
 
     await expect(service.certificate({ sub: "u-1" } as never, "item-1")).rejects.toThrow(
       "No destruction certificate for this retention item",
     );
   });
 
-  it("falls back to the newest event when none names the item", async () => {
-    const { service, prisma } = edgeService();
-    prisma.auditEvent.findMany.mockResolvedValue([
-      { ...auditEvent, detail: { note: "بلا معرّف", destruction: auditEvent.detail.destruction } },
-    ]);
-
-    const certificate = await service.certificate({ sub: "u-1" } as never, "item-1");
-
-    expect(certificate).toMatchObject({ retentionItemId: "item-1", fileCount: 1, note: "بلا معرّف" });
+  it("requires VIEW on the document before reading certificate evidence", async () => {
+    const { service, access, prisma } = edgeService();
+    access.assert.mockRejectedValue(new ForbiddenException());
+    await expect(service.certificate({ sub: "u-1" } as never, "item-1")).rejects.toBeInstanceOf(ForbiddenException);
+    expect(access.assert).toHaveBeenCalledWith({ sub: "u-1" }, "VIEW", item.document.folderId);
+    expect(prisma.auditEvent.findFirst).not.toHaveBeenCalled();
   });
 
   it("rebuilds a certificate from a partial destruction record", async () => {
     const { service, prisma } = edgeService();
-    prisma.auditEvent.findMany.mockResolvedValue([{ ...auditEvent, detail: { retentionItemId: "item-1", destruction: {} } }]);
+    prisma.auditEvent.findFirst.mockResolvedValue({ ...auditEvent, detail: { retentionItemId: "item-1", destruction: {} } });
 
     const certificate = await service.certificate({ sub: "u-1" } as never, "item-1");
 

@@ -393,26 +393,27 @@ export class RetentionService {
     const item = await this.prisma.retentionItem.findUnique({ where: { id }, include: ITEM_INCLUDE });
     if (!item) throw new NotFoundException("Retention item not found");
 
-    const actor = await this.access.resolveActor(principal);
+    const actor = await this.access.assert(principal, AclAction.VIEW, item.document.folderId);
     this.assertDepartment(actor, item.document.departmentId);
 
-    const events = await this.prisma.auditEvent.findMany({
-      where: { entityType: "Document", entityId: item.documentId, action: "retention.destroy" },
-      orderBy: { ts: "desc" },
-      take: 20,
+    const scope = {
+      entityType: "Document",
+      entityId: item.documentId,
+      detail: { path: ["retentionItemId"], equals: item.id },
+    };
+    const event = await this.prisma.auditEvent.findFirst({
+      where: { ...scope, action: "retention.destroy" },
+      orderBy: { seq: "desc" },
     });
-    const event = events.find((candidate) => this.retentionItemIdOf(candidate) === item.id) ?? events[0];
     if (!event) throw new NotFoundException("No destruction certificate for this retention item");
 
     const certificate = this.certificateFromEvent(event, item);
     if (!certificate) throw new NotFoundException("No destruction certificate for this retention item");
 
-    const storageEvents = await this.prisma.auditEvent.findMany({
-      where: { entityType: "Document", entityId: item.documentId, action: "retention.destroy.storage" },
-      orderBy: { ts: "desc" },
-      take: 20,
+    const storageEvent = await this.prisma.auditEvent.findFirst({
+      where: { ...scope, action: "retention.destroy.storage" },
+      orderBy: { seq: "desc" },
     });
-    const storageEvent = storageEvents.find((candidate) => this.retentionItemIdOf(candidate) === item.id);
     const reported = (storageEvent?.detail as { storageErrors?: unknown } | null)?.storageErrors;
     if (certificate && typeof reported === "number") certificate.storageErrors = reported;
 
@@ -495,11 +496,6 @@ export class RetentionService {
       totalBytes: plan.totalBytes,
       storageErrors: 0,
     };
-  }
-
-  private retentionItemIdOf(event: { detail: Prisma.JsonValue }): string | null {
-    const detail = event.detail as { retentionItemId?: unknown } | null;
-    return typeof detail?.retentionItemId === "string" ? detail.retentionItemId : null;
   }
 
   private certificateFromEvent(
