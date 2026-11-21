@@ -80,3 +80,25 @@ MSYS_NO_PATHCONV=1 docker run --rm -v "$PWD/infra/monitoring/otel-collector.yml:
 - المكدّس محلي/مفرد: لا HA لـPrometheus أو Loki، ولا تخزين كائنات بعيد، ولا مصادقة Grafana مسبقة.
 - Alertmanager لا يملك قناة إشعار حقيقية بعد.
 - تتبّع قاعدة البيانات وRedis غير مفعّل؛ spans الحالية تغطي HTTP وExpress فقط.
+
+## مستقبِل تنبيهات Alertmanager (0.1.1)
+
+القالب `infra/monitoring/alertmanager.yml.template` يُصيَّر عند إقلاع الحاوية عبر `alertmanager-entrypoint.sh`، فلا تُخزَّن أسرار في Git ولا تُطبع العناوين في السجلات.
+
+| المتغير | السلوك |
+| --- | --- |
+| `ALERT_WEBHOOK_URL` | عنوان Webhook داخلي (`http`/`https` فقط) |
+| `ALERT_WEBHOOK_URL_FILE` | مسار ملف يحتوي العنوان (مفضّل مع Docker secrets) |
+| `ALERT_WEBHOOK_SEND_RESOLVED` | إرسال إشعارات الحل (`true` افتراضيًا) |
+
+- عند غياب الإعدادين تُقلع Alertmanager بملف `alertmanager.yml` الافتراضي (مستقبِل بلا تكامل): التنبيهات تُقبل وتُسجَّل محليًا لكن **لا تُسلَّم**، ويُطبع تحذير صريح بذلك.
+- مع Docker secrets: أضف السر إلى خدمة `alertmanager` واضبط `ALERT_WEBHOOK_URL_FILE=/run/secrets/alert_webhook_url` في `.env`.
+- عنوان يحتوي رمزًا سريًا يجب أن يُدار كسر لا كقيمة نصية في `docker-compose.yml`.
+
+### التحقق المنفَّذ
+
+- تصيير القالب ثم `amtool check-config` عبر صورة `prom/alertmanager` المثبتة بـdigest: نجح.
+- تسليم فعلي: شُغّلت حاوية Alertmanager بمستقبِل HTTP محلي، ونُشر تنبيه عبر `POST /api/v2/alerts`، ووصل جسم `{"receiver":"default","status":"firing",...}` إلى المستقبِل.
+- اختبار التصيير في CI (`Backup and alerting scripts`) يغطي صحة القالب في كل دفعة.
+
+**الجاهزية:** التوصيل الفعلي تحقق على مستقبِل محلي. قبل الإنتاج يجب إعادة نفس الاختبار على عنوان المؤسسة الحقيقي وتوثيق النتيجة؛ حتى ذلك الحين لا يُعد تسليم التنبيهات جاهزًا للإنتاج.
