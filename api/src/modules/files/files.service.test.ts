@@ -11,6 +11,7 @@ function buildService(actor: Record<string, unknown> = { id: "user-1", departmen
   const usedTickets = new Set<string>();
   const prisma = {
     uploadIntent: {
+      findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockResolvedValue({ id: "intent-1" }),
       findUnique: vi.fn().mockResolvedValue(null),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
@@ -48,7 +49,8 @@ function buildService(actor: Record<string, unknown> = { id: "user-1", departmen
     presignExpiresSeconds: 900,
     presignUpload: vi.fn().mockResolvedValue("https://minio/put?X-Signature=abc"),
     presignDownload: vi.fn().mockResolvedValue("https://minio/get?X-Signature=abc"),
-    head: vi.fn().mockResolvedValue({ sizeBytes: 2048, mimeType: "application/pdf" }),
+    head: vi.fn().mockResolvedValue({ etag: "etag-1", sizeBytes: 2048, mimeType: "application/pdf" }),
+    copyUpload: vi.fn().mockResolvedValue(undefined),
     sha256: vi.fn().mockResolvedValue({ checksum: CHECKSUM, sizeBytes: 2048 }),
     readHead: vi.fn().mockResolvedValue(Buffer.from("%PDF-1.7\n")),
     get: vi.fn().mockResolvedValue(null),
@@ -397,7 +399,7 @@ describe("FilesService register", () => {
 
     const empty = buildService();
     empty.prisma.uploadIntent.findUnique.mockResolvedValue(intent());
-    empty.storage.head.mockResolvedValue({ sizeBytes: 0, mimeType: "application/pdf" });
+    empty.storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: 0, mimeType: "application/pdf" });
     await expect(
       empty.service.register(
         { sub: "user-1" } as never,
@@ -413,7 +415,7 @@ describe("FilesService register", () => {
 
     const oversize = buildService();
     oversize.prisma.uploadIntent.findUnique.mockResolvedValue(intent({ maxBytes: 1024 }));
-    oversize.storage.head.mockResolvedValue({ sizeBytes: 4096, mimeType: "application/pdf" });
+    oversize.storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: 4096, mimeType: "application/pdf" });
     await expect(
       oversize.service.register(
         { sub: "user-1" } as never,
@@ -432,7 +434,7 @@ describe("FilesService register", () => {
   it("refuses a size or content-type that contradicts what storage reports", async () => {
     const sizeMismatch = buildService();
     sizeMismatch.prisma.uploadIntent.findUnique.mockResolvedValue(intent());
-    sizeMismatch.storage.head.mockResolvedValue({ sizeBytes: 9999, mimeType: "application/pdf" });
+    sizeMismatch.storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: 9999, mimeType: "application/pdf" });
     await expect(
       sizeMismatch.service.register(
         { sub: "user-1" } as never,
@@ -448,7 +450,7 @@ describe("FilesService register", () => {
 
     const typeMismatch = buildService();
     typeMismatch.prisma.uploadIntent.findUnique.mockResolvedValue(intent());
-    typeMismatch.storage.head.mockResolvedValue({ sizeBytes: 2048, mimeType: "application/x-msdownload" });
+    typeMismatch.storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: 2048, mimeType: "application/x-msdownload" });
     await expect(
       typeMismatch.service.register(
         { sub: "user-1" } as never,
@@ -464,13 +466,24 @@ describe("FilesService register", () => {
     expect(typeMismatch.prisma.fileObject.create).not.toHaveBeenCalled();
   });
 
+  it("keeps a registration snapshot out of cleanup until its claim commits", async () => {
+    const { service, prisma, storage } = buildService();
+    const id = "9ce10bc0-513f-4127-8e79-aa948df00001";
+    const key = `documents/sealed/${id}/snapshot.pdf`;
+    storage.listKeys.mockResolvedValue({ keys: [key], truncated: false });
+    prisma.uploadIntent.findMany.mockResolvedValue([{ id }]);
+    await service.purgeUnreferenced({ sub: "user-1" } as never, { confirm: true });
+    expect(storage.remove).not.toHaveBeenCalled();
+  });
+
   it("stores the presigned type and the real object size instead of the client declaration", async () => {
     const { service, prisma, storage } = buildService();
     prisma.uploadIntent.findUnique.mockResolvedValue(intent({ mimeType: "application/pdf" }));
-    storage.head.mockResolvedValue({ sizeBytes: 77777, mimeType: "application/pdf" });
+    storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: 77777, mimeType: "application/pdf" });
     storage.sha256.mockResolvedValue({ checksum: CHECKSUM, sizeBytes: 77777 });
     prisma.fileObject.create.mockResolvedValue(fileObject({ sizeBytes: 77777n }));
 
+    storage.remove.mockRejectedValue(new Error("cleanup unavailable"));
     const result = await service.register(
       { sub: "user-1" } as never,
       {
@@ -482,9 +495,15 @@ describe("FilesService register", () => {
       } as never,
     );
 
+    const sealedKey = storage.copyUpload.mock.calls[0][1];
+    expect(sealedKey).toMatch(/^documents\/sealed\//);
+    expect(storage.copyUpload).toHaveBeenCalledWith(intent().storageKey, sealedKey, "etag-1");
+    expect(storage.sha256).toHaveBeenCalledWith(sealedKey, 77777);
+    expect(storage.remove).toHaveBeenCalledWith(intent().storageKey);
     expect(prisma.fileObject.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         mimeType: "application/pdf",
+        storageKey: sealedKey,
         sizeBytes: 77777n,
         checksumSha256: CHECKSUM,
         originalName: "عقد العمل.pdf",
@@ -495,6 +514,18 @@ describe("FilesService register", () => {
       where: { id: "intent-1", consumedAt: null },
       data: { consumedAt: expect.any(Date) },
     });
+  });
+
+  it("requires a storage revision before copying and preserves an uncertain database commit", async () => {
+    const { service, storage, prisma } = buildService();
+    prisma.uploadIntent.findUnique.mockResolvedValue(intent());
+    const dto = { storageKey: intent().storageKey, originalName: "x.pdf", mimeType: "application/pdf", checksumSha256: CHECKSUM };
+    storage.head.mockResolvedValueOnce({ sizeBytes: 2048 });
+    await expect(service.register({ sub: "user-1" } as never, dto)).rejects.toThrow("Storage did not identify");
+    expect(storage.copyUpload).not.toHaveBeenCalled();
+    prisma.$transaction.mockRejectedValue(new Error("commit status unavailable"));
+    await expect(service.register({ sub: "user-1" } as never, dto)).rejects.toThrow("commit status unavailable");
+    expect(storage.remove).not.toHaveBeenCalled();
   });
 
   it("refuses an upload whose stored bytes contradict the declared checksum", async () => {
@@ -560,7 +591,7 @@ describe("FilesService register", () => {
   it("accepts an object whose storage layer reports no content type", async () => {
     const { service, prisma, storage } = buildService();
     prisma.uploadIntent.findUnique.mockResolvedValue(intent());
-    storage.head.mockResolvedValue({ sizeBytes: 2048, mimeType: null });
+    storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: 2048, mimeType: null });
     prisma.fileObject.create.mockResolvedValue(fileObject());
 
     await expect(
@@ -953,7 +984,7 @@ describe("FilesService checksum verification", () => {
     const body = Buffer.from("contract bytes");
     const checksum = createHash("sha256").update(body).digest("hex");
     prisma.fileObject.findUnique.mockResolvedValue(fileObject({ checksumSha256: checksum, sizeBytes: BigInt(body.length) }));
-    storage.head.mockResolvedValue({ sizeBytes: body.length, mimeType: "application/pdf" });
+    storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: body.length, mimeType: "application/pdf" });
     storage.get.mockResolvedValue(body);
 
     const result = await service.verify({ sub: "user-9" } as never, "file-1");
@@ -967,7 +998,7 @@ describe("FilesService checksum verification", () => {
     const { service, prisma, storage, audit } = buildService(AUDITOR);
     const body = Buffer.from("edited after archiving");
     prisma.fileObject.findUnique.mockResolvedValue(fileObject({ checksumSha256: CHECKSUM, sizeBytes: BigInt(body.length) }));
-    storage.head.mockResolvedValue({ sizeBytes: body.length, mimeType: "application/pdf" });
+    storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: body.length, mimeType: "application/pdf" });
     storage.get.mockResolvedValue(body);
 
     const result = await service.verify({ sub: "user-9" } as never, "file-1");
@@ -991,7 +1022,7 @@ describe("FilesService checksum verification", () => {
   it("stops at a size change before spending time on the hash", async () => {
     const { service, prisma, storage } = buildService(AUDITOR);
     prisma.fileObject.findUnique.mockResolvedValue(fileObject());
-    storage.head.mockResolvedValue({ sizeBytes: 999, mimeType: "application/pdf" });
+    storage.head.mockResolvedValue({ etag: "etag-1", sizeBytes: 999, mimeType: "application/pdf" });
 
     const result = await service.verify({ sub: "user-9" } as never, "file-1");
 

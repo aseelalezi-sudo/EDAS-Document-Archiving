@@ -138,6 +138,7 @@ const EXACT_REASONS: Record<string, string> = {
   "Unknown report type": "نوع تقرير غير معروف",
   "Unknown role": "دور غير معروف",
   "Uploaded file does not match the declared checksum": "الملف المرفوع لا يطابق البصمة المُعلنة",
+  "Storage did not identify the uploaded object": "تعذّر تحديد نسخة الملف المرفوع في التخزين",
   "Uploaded object could not be read for verification": "تعذّرت قراءة الملف المرفوع للتحقق من سلامته",
   "Uploaded object is empty": "الكائن المرفوع فارغ",
   "Uploaded object was not found in storage": "الكائن المرفوع غير موجود في التخزين",

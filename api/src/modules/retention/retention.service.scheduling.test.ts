@@ -103,7 +103,7 @@ function buildService(actor: { id: string; departmentId: string | null; role: st
       count: vi.fn().mockResolvedValue(0),
       findMany: vi.fn(async () => state.holds),
     },
-    auditEvent: { findMany: vi.fn().mockResolvedValue([]) },
+    auditEvent: { findFirst: vi.fn().mockResolvedValue([]) },
   };
 
   const transaction = prisma.$transaction as unknown as {
@@ -445,8 +445,8 @@ describe("RetentionService execution guards", () => {
 
   it("folds the recorded storage errors into the certificate read-back", async () => {
     const { service, prisma } = buildService();
-    prisma.auditEvent.findMany
-      .mockResolvedValueOnce([
+    prisma.auditEvent.findFirst
+      .mockResolvedValueOnce(
         {
           id: "evt-1",
           ts: new Date("2026-02-01T10:00:00.000Z"),
@@ -468,8 +468,8 @@ describe("RetentionService execution guards", () => {
             },
           },
         },
-      ])
-      .mockResolvedValueOnce([
+      )
+      .mockResolvedValueOnce(
         {
           id: "evt-2",
           ts: new Date(),
@@ -478,12 +478,12 @@ describe("RetentionService execution guards", () => {
           actorName: null,
           detail: { retentionItemId: "item-1", storageErrors: 3 },
         },
-      ]);
+      );
 
     const certificate = await service.certificate(PRINCIPAL, "item-1");
 
     expect(certificate.storageErrors).toBe(3);
-    expect(prisma.auditEvent.findMany).toHaveBeenLastCalledWith(
+    expect(prisma.auditEvent.findFirst).toHaveBeenLastCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ action: "retention.destroy.storage" }) }),
     );
   });

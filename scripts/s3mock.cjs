@@ -65,12 +65,24 @@ const server = http.createServer((req, res) => {
   const id = `${bucket}/${key}`;
 
   if (req.method === "PUT") {
+    if (req.headers["x-amz-copy-source"]) {
+      const source = store.get(decodeURIComponent(req.headers["x-amz-copy-source"]).replace(/^\//, ""));
+      if (!source || req.headers["x-amz-copy-source-if-match"] !== source.etag) {
+        res.writeHead(source ? 412 : 404).end();
+        return;
+      }
+      store.set(id, { ...source });
+      res.writeHead(200, { "Content-Type": "application/xml" });
+      res.end(`<CopyObjectResult><ETag>${source.etag}</ETag></CopyObjectResult>`);
+      return;
+    }
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
       const body = Buffer.concat(chunks);
-      store.set(id, { body, contentType: req.headers["content-type"] || "application/octet-stream" });
-      res.setHeader("ETag", '"mock-etag"');
+      const etag = '"' + require("node:crypto").createHash("sha256").update(body).digest("hex") + '"';
+      store.set(id, { body, etag, contentType: req.headers["content-type"] || "application/octet-stream" });
+      res.setHeader("ETag", etag);
       res.writeHead(200);
       res.end("");
     });
@@ -83,6 +95,7 @@ const server = http.createServer((req, res) => {
       res.end();
       return;
     }
+    res.setHeader("ETag", obj.etag);
     res.setHeader("Content-Length", String(obj.body.length));
     res.setHeader("Content-Type", obj.contentType);
     res.writeHead(200);

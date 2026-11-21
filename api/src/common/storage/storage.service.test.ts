@@ -330,6 +330,16 @@ describe("StorageService ranged head reads", () => {
     return service;
   }
 
+  it("copies the inspected revision to the server-owned key", async () => {
+    const send = vi.fn().mockResolvedValue({});
+    await withBody(send).copyUpload("documents/in box.pdf", "documents/sealed/id/copy.pdf", '"rev"');
+    expect(send.mock.calls[0][0].input).toMatchObject({
+      Key: "documents/sealed/id/copy.pdf",
+      CopySource: "edas-documents/documents/in%20box.pdf",
+      CopySourceIfMatch: '"rev"',
+    });
+  });
+
   it("reads only the requested prefix of an object", async () => {
     const sent: { input: Record<string, unknown> }[] = [];
     const service = withBody(async (command) => {

@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -16,6 +17,7 @@ import { pipeline } from "node:stream/promises";
 
 export interface StoredObjectInfo {
   sizeBytes: number;
+  etag?: string;
   mimeType?: string;
 }
 
@@ -110,11 +112,20 @@ export class StorageService {
   async head(key: string): Promise<StoredObjectInfo | null> {
     try {
       const result = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
-      return { sizeBytes: result.ContentLength ?? 0, mimeType: result.ContentType };
+      return { sizeBytes: result.ContentLength ?? 0, mimeType: result.ContentType, etag: result.ETag };
     } catch (error) {
       this.logger.warn(`head(${key}) failed: ${(error as Error).message}`);
       return null;
     }
+  }
+
+  async copyUpload(source: string, destination: string, etag: string): Promise<void> {
+    await this.client.send(new CopyObjectCommand({
+      Bucket: this.bucket,
+      Key: destination,
+      CopySource: [this.bucket, ...source.split("/")].map(encodeURIComponent).join("/"),
+      CopySourceIfMatch: etag,
+    }));
   }
 
   async remove(key: string): Promise<void> {
