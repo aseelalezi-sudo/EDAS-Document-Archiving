@@ -288,9 +288,8 @@ export class ReportsService {
     const actor = await this.access.resolveActor(principal);
     const global = this.access.isGlobal(actor);
     const departmentId = global ? undefined : departmentMatch(actor.departmentId);
-    const visibility = global ? undefined : await this.access.documentVisibilityFilter(actor);
-    const documentWhere: Prisma.DocumentWhereInput = visibility ?? {};
-    const documentScope = visibility ? { document: visibility } : {};
+    const documentWhere = await this.access.documentVisibilityFilter(actor);
+    const documentScope = { document: documentWhere };
 
     const [documents, byStatus, byClassification, pendingApprovals, overdueRetention, activeHolds, users, openTasks] = await Promise.all([
       this.prisma.document.count({ where: documentWhere }),
@@ -312,7 +311,7 @@ export class ReportsService {
       this.prisma.legalHold.count({
         where: {
           status: "ACTIVE",
-          ...(global ? {} : { documents: { some: documentScope } }),
+          documents: { some: documentScope },
         },
       }),
       this.prisma.user.count(departmentId ? { where: { departmentId } } : undefined),
@@ -491,9 +490,9 @@ export class ReportsService {
   ) {
     const departmentId: DepartmentMatch =
       contentDepartmentId ?? (this.access.isGlobal(actor) ? undefined : departmentMatch(actor.departmentId));
-    const visibility = this.access.isGlobal(actor) ? undefined : await this.access.documentVisibilityFilter(actor);
     let table: ReportTable;
     try {
+      const visibility = await this.access.documentVisibilityFilter(actor);
       table = await this.buildReport(run.reportType, departmentId, visibility);
     } catch (error) {
       await this.prisma.reportRun.update({ where: { id: run.id }, data: { status: "failed", completedAt: new Date() } });
@@ -752,7 +751,7 @@ export class ReportsService {
             status: true,
             placedAt: true,
             releasedAt: true,
-            _count: { select: { documents: true } },
+            _count: { select: { documents: { where: { document: documentWhere } } } },
           },
         });
         const rows = holds.map((hold) => [

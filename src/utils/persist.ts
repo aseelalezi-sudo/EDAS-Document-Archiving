@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { config } from "../config";
 
 const PREFIX = "edas.v1.";
 
@@ -24,14 +25,31 @@ function write(key: string, value: unknown) {
  * Like useState, but the value survives page reloads via localStorage.
  * `initial` may be a value or a lazy initializer.
  */
-export function usePersistentState<T>(key: string, initial: T | (() => T)) {
-  const [state, setState] = useState<T>(() => read(key, typeof initial === "function" ? (initial as () => T)() : initial));
+export function usePersistentState<T>(key: string, initial: T | (() => T), persist = true) {
+  const [state, setState] = useState<T>(() => {
+    const fallback = typeof initial === "function" ? (initial as () => T)() : initial;
+    return persist ? read(key, fallback) : fallback;
+  });
 
   useEffect(() => {
-    write(key, state);
-  }, [key, state]);
+    if (persist) write(key, state);
+  }, [key, state, persist]);
+
+  useEffect(() => {
+    if (!persist) {
+      try {
+        localStorage.removeItem(PREFIX + key);
+      } catch {
+        /* storage may be unavailable */
+      }
+    }
+  }, [key, persist]);
 
   return [state, setState] as const;
+}
+
+export function useDemoPersistentState<T>(key: string, initial: T | (() => T)) {
+  return usePersistentState(key, initial, !config.useApi);
 }
 
 /** Remove all persisted EDAS state (used by "reset demo" style actions). */
