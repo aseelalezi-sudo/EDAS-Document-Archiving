@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the EDAS encrypted off-site backup nightly
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=edas-backup.service
+
+[Install]
+WantedBy=timers.target

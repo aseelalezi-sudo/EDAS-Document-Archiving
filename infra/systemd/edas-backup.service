@@ -1,0 +1,23 @@
+[Unit]
+Description=EDAS encrypted off-site backup
+Documentation=file:///opt/edas/docs/backup-restore.md
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=edas
+Group=docker
+WorkingDirectory=/opt/edas
+EnvironmentFile=-/etc/edas/backup.env
+ExecStart=/bin/bash /opt/edas/scripts/backup/backup.sh
+TimeoutStartSec=2h
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
