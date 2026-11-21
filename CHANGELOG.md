@@ -4,6 +4,16 @@ All notable changes to EDAS are recorded here. The project follows [Semantic Ver
 
 ## [Unreleased]
 
+### Security
+
+- Pin `effect` to `^3.22.5` in the API `overrides` to clear `GHSA-7589-6fvf-x4pw` (ReDoS). `@prisma/config` pins the vulnerable `effect@3.21.0` exactly and even `7.10.1` still pins `3.20.0`, so `npm audit fix` and a Prisma upgrade alone cannot clear it; the production dependency audit now reports zero vulnerabilities for both packages.
+
+### Changed
+
+- Audit chain verification (`verifyChain` / baseline creation) now streams the ledger in `seq`-ordered batches of 1,000 with a cursor instead of loading every event at once, keeping verification memory bounded by one batch while preserving break, fork and gap detection.
+- Renamed `api/vitest.config.ts` to `api/vitest.config.mts` so Vitest no longer warns about ESM syntax in a CommonJS-loaded config.
+- `README.md` now describes the real audit gate (`npm audit --omit=dev` blocking, full tree advisory) instead of claiming the full-tree audit blocks the build.
+
 ## [0.1.0] - 2026-11-18
 
 The first security-hardened pre-production baseline.
