@@ -37,10 +37,8 @@ export class LegalHoldsService {
 
     const where: Prisma.LegalHoldWhereInput = {};
     if (query.status) where.status = query.status;
-    if (!this.access.isGlobal(actor)) {
-      const visibility = await this.access.documentVisibilityFilter(actor);
-      if (visibility) where.documents = { some: { document: visibility } };
-    }
+    const visibility = await this.access.documentVisibilityFilter(actor);
+    if (!this.access.isGlobal(actor) && visibility) where.documents = { some: { document: visibility } };
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.legalHold.findMany({
@@ -48,7 +46,7 @@ export class LegalHoldsService {
         orderBy: { placedAt: "desc" },
         skip: (page - 1) * pageSize,
         take: pageSize,
-        include: HOLD_INCLUDE,
+        include: this.visibleInclude(visibility),
       }),
       this.prisma.legalHold.count({ where }),
     ]);
@@ -58,9 +56,10 @@ export class LegalHoldsService {
 
   async get(principal: Principal, id: string) {
     const actor = await this.access.resolveActor(principal);
-    const hold = await this.prisma.legalHold.findUnique({ where: { id }, include: HOLD_INCLUDE });
+    const visibility = await this.access.documentVisibilityFilter(actor);
+    const hold = await this.prisma.legalHold.findUnique({ where: { id }, include: this.visibleInclude(visibility) });
     if (!hold) throw new NotFoundException("Legal hold not found");
-    await this.assertVisible(actor, hold);
+    if (!this.access.isGlobal(actor) && !hold.documents.length) throw new ForbiddenException("Out of department scope");
     return this.toDto(hold);
   }
 
@@ -69,6 +68,7 @@ export class LegalHoldsService {
     const documentIds = [...new Set(dto.documentIds ?? [])].sort();
     await this.assertDocuments(actor, documentIds);
 
+    const visibility = await this.access.documentVisibilityFilter(actor);
     const hold = await this.prisma.$transaction(async (tx) => {
       for (const documentId of documentIds) await advisoryLock(tx, documentHoldLock(documentId));
 
@@ -82,7 +82,7 @@ export class LegalHoldsService {
           placedById: actor.id || null,
           documents: { create: documentIds.map((documentId) => ({ documentId })) },
         },
-        include: HOLD_INCLUDE,
+        include: this.visibleInclude(visibility),
       });
 
       await this.audit.record(
@@ -133,7 +133,7 @@ export class LegalHoldsService {
       );
     });
 
-    return this.toDto(await this.mustFind(id));
+    return this.toDto(await this.mustFind(id, await this.access.documentVisibilityFilter(actor)));
   }
 
   async removeDocument(principal: Principal, id: string, documentId: string) {
@@ -166,7 +166,7 @@ export class LegalHoldsService {
       );
     });
 
-    return this.toDto(await this.mustFind(id));
+    return this.toDto(await this.mustFind(id, await this.access.documentVisibilityFilter(actor)));
   }
 
   async release(principal: Principal, id: string) {
@@ -177,6 +177,7 @@ export class LegalHoldsService {
     await this.assertWholeHold(actor, id);
 
     const releasedAt = new Date();
+    const visibility = await this.access.documentVisibilityFilter(actor);
     const updated = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.legalHold.updateMany({
         where: { id, status: { not: HoldStatus.RELEASED } },
@@ -202,7 +203,7 @@ export class LegalHoldsService {
       return fresh;
     });
 
-    return this.toDto(updated);
+    return this.toDto(await this.mustFind(updated.id, visibility));
   }
 
   private async assertHoldActive(tx: Prisma.TransactionClient, id: string) {
@@ -246,8 +247,12 @@ export class LegalHoldsService {
     }
   }
 
-  private async mustFind(id: string): Promise<HoldWithRelations> {
-    const hold = await this.prisma.legalHold.findUnique({ where: { id }, include: HOLD_INCLUDE });
+  private visibleInclude(visibility?: Prisma.DocumentWhereInput) {
+    return { ...HOLD_INCLUDE, documents: { ...HOLD_INCLUDE.documents, where: { document: visibility } } };
+  }
+
+  private async mustFind(id: string, visibility?: Prisma.DocumentWhereInput): Promise<HoldWithRelations> {
+    const hold = await this.prisma.legalHold.findUnique({ where: { id }, include: this.visibleInclude(visibility) });
     if (!hold) throw new NotFoundException("Legal hold not found");
     return hold;
   }

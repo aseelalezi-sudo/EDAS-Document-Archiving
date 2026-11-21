@@ -472,6 +472,17 @@ try {
   Assert ([int]$empReadAfterDeny.StatusCode -eq 200) "VIEW should survive a rule that only denies EDIT (got $($empReadAfterDeny.StatusCode))"
   Log "rbac: employee VIEW after deny -> HTTP $($empReadAfterDeny.StatusCode)"
 
+  $adminViewRule = @{ rules = @(@{ principalType = 'ROLE'; principalId = 'SYSTEM_ADMIN'; actions = @('VIEW'); effect = 'DENY' }) } | ConvertTo-Json -Depth 5
+  $aclUri = "$base/folders/$($rbacFolder.id)/acl"
+  $null = Invoke-RestMethod -Method Put -Uri $aclUri -Headers (AuthHeader $adminTok) -ContentType 'application/json' -Body $adminViewRule
+  $adminList = (Invoke-RestMethod "$base/documents?folderId=$($rbacFolder.id)" -Headers (AuthHeader $adminTok)).data
+  Assert ($adminList.meta.total -eq 0) 'explicit VIEW denial must hide document list items and counts for a global role'
+  $adminDetail = Invoke-WebRequest "$base/documents/$($doc.id)" -Headers (AuthHeader $adminTok) -SkipHttpErrorCheck
+  Assert ([int]$adminDetail.StatusCode -eq 403) 'the same VIEW denial must apply to document detail'
+  $null = Invoke-RestMethod -Method Put -Uri $aclUri -Headers (AuthHeader $adminTok) -ContentType 'application/json' -Body $denyBody
+  $adminList = (Invoke-RestMethod "$base/documents?folderId=$($rbacFolder.id)" -Headers (AuthHeader $adminTok)).data
+  Assert ($adminList.items.id -contains $doc.id) 'document should be visible again after removing the denial'
+
   $empDelete = Invoke-WebRequest -Method Delete -Uri "$base/documents/$($doc.id)" -Headers (AuthHeader $empTok) -SkipHttpErrorCheck
   Assert ([int]$empDelete.StatusCode -eq 403) "employee DELETE should be 403 (got $($empDelete.StatusCode))"
   Log "rbac: employee DELETE document -> HTTP $($empDelete.StatusCode) ($($empDelete.Content))"
@@ -866,6 +877,11 @@ try {
   Assert ($crossHold.documents.Count -eq 2) "the cross-department hold should keep both documents (got $($crossHold.documents.Count))"
   $mgrHolds = (Invoke-RestMethod "$base/legal-holds" -Headers (AuthHeader $mgrTok)).data
   Assert ($mgrHolds.items | Where-Object { $_.id -eq $crossHold.id }) 'a hold touching the manager department should be visible'
+  $listedHold = $mgrHolds.items | Where-Object { $_.id -eq $crossHold.id }
+  $openedHold = (Invoke-RestMethod "$base/legal-holds/$($crossHold.id)" -Headers (AuthHeader $mgrTok)).data
+  foreach ($view in @($listedHold, $openedHold)) {
+    Assert ($view.documents.Count -eq 1 -and $view.documents[0].id -eq $scopedDocA.id) 'mixed hold must return only the visible document'
+  }
   Log "legal-hold.scope: case=$($crossHold.caseNo) visible-to-manager=$($mgrHolds.meta.total)"
 
   $holdReleaseDenied = Invoke-WebRequest -Method Post -Uri "$base/legal-holds/$($crossHold.id)/release" -Headers (AuthHeader $mgrTok) -SkipHttpErrorCheck

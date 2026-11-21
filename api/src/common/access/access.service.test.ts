@@ -531,11 +531,16 @@ describe("AccessService folder scope", () => {
     expect(prisma.aclRule.findMany).not.toHaveBeenCalled();
   });
 
-  it("returns null for a global actor without loading folders", async () => {
-    const { service, prisma } = buildService({ id: "user-9", role: "SYSTEM_ADMIN", departmentId: null });
-
-    await expect(service.visibleFolderIds({ id: "user-9", role: "SYSTEM_ADMIN", departmentId: null })).resolves.toBeNull();
-    expect(prisma.folder.findMany).not.toHaveBeenCalled();
+  it.each(["SYSTEM_ADMIN", "AUDITOR"] as const)("applies inherited view denials to %s", async (role) => {
+    const actor = { id: "user-9", role, departmentId: null };
+    const { service, prisma } = buildService(actor);
+    prisma.folder.findMany.mockResolvedValue([
+      folder({ id: "parent" }), folder({ id: "child", parentId: "parent" }), folder({ id: "visible" }),
+    ] as never);
+    prisma.aclRule.findMany.mockResolvedValue([
+      { folderId: "parent", principalType: "ROLE", principalId: role, effect: "DENY", actions: ["VIEW"] },
+    ] as never);
+    await expect(service.visibleFolderIds(actor)).resolves.toEqual(["visible"]);
   });
 
   it("rejects a private folder owned by someone else even inside the same department", async () => {
@@ -585,42 +590,22 @@ describe("AccessService.assertDepartmentScope with folder scope", () => {
 describe("AccessService.documentVisibilityFilter", () => {
   const employee: Actor = { id: "user-1", role: "EMPLOYEE", departmentId: "dept-1", sectionId: "section-1" };
 
-  it("returns no filter for a global actor", async () => {
-    const { service } = buildService({ id: "user-9", role: "SYSTEM_ADMIN", departmentId: null });
-
-    await expect(service.documentVisibilityFilter({ id: "user-9", role: "SYSTEM_ADMIN", departmentId: null })).resolves.toBeUndefined();
+  it("retains unfiled documents for global actors", async () => {
+    const actor = { id: "user-9", role: "AUDITOR" as const, departmentId: null };
+    const { service } = buildService(actor);
+    await expect(service.documentVisibilityFilter(actor)).resolves.toEqual({ OR: [{ folderId: { in: [] } }, { folderId: null }] });
   });
 
-  it("falls back to an empty folder list and blank department when a scoped actor has no department", async () => {
-    const { service } = buildService({ id: "user-1", role: "EMPLOYEE", departmentId: null });
-    vi.spyOn(service, "visibleFolderIds").mockResolvedValue(null);
-
-    await expect(service.documentVisibilityFilter({ id: "user-1", role: "EMPLOYEE", departmentId: null })).resolves.toEqual({
-      OR: [
-        { folderId: { in: [] } },
-        { folderId: null, departmentId: "" },
-      ],
-    });
-  });
-
-  it("restricts scoped actors to visible folders plus their unfiled department documents", async () => {
-    const { service, prisma } = buildService({ id: "user-1", role: "EMPLOYEE", departmentId: "dept-1" });
-    prisma.folder.findMany.mockResolvedValue([
-      {
-        id: "folder-1",
-        parentId: null,
-        scope: "PUBLIC",
-        departmentId: "dept-2",
-        sectionId: null,
-        ownerId: null,
-        aclInherit: true,
-      },
-    ] as never);
-
+  it("intersects folder permissions with the detail department and ownership checks", async () => {
+    const { service } = buildService({ ...employee });
+    vi.spyOn(service, "visibleFolderIds").mockResolvedValue(["folder-1"]);
     await expect(service.documentVisibilityFilter(employee)).resolves.toEqual({
-      OR: [
-        { folderId: { in: ["folder-1"] } },
-        { folderId: null, departmentId: "dept-1" },
+      AND: [
+        { OR: [{ folderId: { in: ["folder-1"] } }, { folderId: null }] },
+        { OR: [
+          { ownerId: employee.id }, { folder: { scope: "PUBLIC" } },
+          { folder: { scope: "PRIVATE", ownerId: employee.id } }, documentDepartmentFilter(employee.departmentId),
+        ] },
       ],
     });
   });

@@ -116,18 +116,25 @@ export class AccessService {
   }
 
   async documentVisibilityFilter(actor: Actor): Promise<Prisma.DocumentWhereInput | undefined> {
-    if (this.isGlobal(actor)) return undefined;
-    const folderIds = await this.visibleFolderIds(actor);
+    const folders = await this.visibleFolderIds(actor);
+    const folderScope: Prisma.DocumentWhereInput = { OR: [{ folderId: { in: folders } }, { folderId: null }] };
+    if (this.isGlobal(actor)) return folderScope;
     return {
-      OR: [
-        { folderId: { in: folderIds ?? [] } },
-        { folderId: null, departmentId: actor.departmentId ?? "" },
+      AND: [
+        folderScope,
+        {
+          OR: [
+            { ownerId: actor.id },
+            { folder: { scope: FolderScope.PUBLIC } },
+            { folder: { scope: FolderScope.PRIVATE, ownerId: actor.id } },
+            documentDepartmentFilter(actor.departmentId),
+          ],
+        },
       ],
     };
   }
 
-  async visibleFolderIds(actor: Actor): Promise<string[] | null> {
-    if (this.isGlobal(actor)) return null;
+  async visibleFolderIds(actor: Actor): Promise<string[]> {
     const folders = await this.prisma.folder.findMany({ select: FOLDER_SCOPE_SELECT });
     if (folders.length === 0) return [];
     const rules = await this.prisma.aclRule.findMany({

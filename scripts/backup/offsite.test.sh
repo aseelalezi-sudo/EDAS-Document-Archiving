@@ -121,12 +121,14 @@ echo "3) encrypt, upload, verify and prune old backups"
 mkdir -p "$S3/offsite/edas/20200101T000000Z"
 printf 'old' >"$S3/offsite/edas/20200101T000000Z/postgres.dump.enc"
 touch -d "2020-01-01T00:00:00Z" "$S3/offsite/edas/20200101T000000Z/postgres.dump.enc"
+touch -d "2020-01-01" "$S3/offsite/edas/unrelated"
 run BACKUP_DIR="$OUT" BACKUP_OFFSITE_BUCKET=offsite BACKUP_OFFSITE_PREFIX=edas \
   BACKUP_OFFSITE_RETENTION_DAYS=30 BACKUP_ENCRYPTION_PASSPHRASE=test-passphrase \
   bash "$ROOT/scripts/backup/offsite.sh" >"$TMP/out3" 2>&1 || {
   cat "$TMP/out3" >&2
   fail "off-site copy failed"
 }
+[[ -f "$S3/offsite/edas/unrelated" ]] || fail "unrelated key was removed"
 DEST="$S3/offsite/edas/20260101T000000Z"
 [[ -f "$DEST/postgres.dump.enc" ]] || fail "postgres ciphertext missing"
 [[ -f "$DEST/minio-data.tar.gz.enc" ]] || fail "minio ciphertext missing"

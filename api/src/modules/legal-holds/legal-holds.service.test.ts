@@ -120,7 +120,8 @@ describe("LegalHoldsService department scope", () => {
   });
 
   it("refuses a hold that does not touch the requester's department", async () => {
-    const { service } = buildService(FINANCE, 0);
+    const { service, prisma } = buildService(FINANCE, 0);
+    prisma.legalHold.findUnique.mockResolvedValue(holdFixture({ documents: [] }));
 
     await expect(service.get({ sub: "user-mgr" } as never, "hold-1")).rejects.toBeInstanceOf(ForbiddenException);
   });

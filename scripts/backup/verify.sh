@@ -12,13 +12,16 @@ if [[ -z "$BACKUP" || ! -d "$BACKUP" ]]; then
 fi
 
 STAMP="$(date -u +%Y%m%d%H%M%S)"
-VERIFY_DB="edas_verify_${STAMP}"
+VERIFY_DB="edas_verify_${STAMP}_${BASHPID}"
+created=false
 POSTGRES_USER="${POSTGRES_USER:-edas}"
 COMPOSE="${COMPOSE:-docker compose}"
 WORK="$(mktemp -d)"
 
 cleanup() {
-  $COMPOSE -f "$ROOT/docker-compose.yml" exec -T postgres dropdb --if-exists --username "$POSTGRES_USER" "$VERIFY_DB" >/dev/null 2>&1 || true
+  if [[ "$created" == true ]]; then
+    $COMPOSE -f "$ROOT/docker-compose.yml" exec -T postgres dropdb --if-exists --username "$POSTGRES_USER" "$VERIFY_DB" >/dev/null 2>&1 || true
+  fi
   rm -rf "$WORK"
 }
 trap cleanup EXIT
@@ -33,8 +36,7 @@ resolve_passphrase() {
     return
   fi
   if [[ -n "${BACKUP_ENCRYPTION_PASSPHRASE:-}" ]]; then
-    export EDAS_BACKUP_PASSPHRASE="$BACKUP_ENCRYPTION_PASSPHRASE"
-    printf 'env:EDAS_BACKUP_PASSPHRASE'
+    printf 'env:BACKUP_ENCRYPTION_PASSPHRASE'
     return
   fi
   echo "backup is encrypted: set BACKUP_ENCRYPTION_PASSPHRASE or BACKUP_ENCRYPTION_PASSPHRASE_FILE" >&2
@@ -61,12 +63,14 @@ if [[ ! -f "$BACKUP/postgres.dump" ]]; then
   ARTIFACTS="$WORK"
 fi
 
-if [[ -f "$ARTIFACTS/SHA256SUMS" ]]; then
-  (cd "$ARTIFACTS" && sha256sum --check SHA256SUMS)
-fi
+for required in postgres.dump minio-data.tar.gz SHA256SUMS; do
+  [[ -s "$ARTIFACTS/$required" ]] || { echo "Incomplete backup: missing $required" >&2; exit 2; }
+done
+(cd "$ARTIFACTS" && sha256sum --check SHA256SUMS)
 
 echo "Restoring into isolated database $VERIFY_DB"
 $COMPOSE -f "$ROOT/docker-compose.yml" exec -T postgres createdb --username "$POSTGRES_USER" "$VERIFY_DB"
+created=true
 $COMPOSE -f "$ROOT/docker-compose.yml" exec -T postgres \
   pg_restore --no-owner --no-privileges --exit-on-error --dbname "$VERIFY_DB" --username "$POSTGRES_USER" <"$ARTIFACTS/postgres.dump"
 

@@ -86,7 +86,8 @@ process.stdin.on("end", () => {
   }
 });
 ' | while IFS=$'\t' read -r key modified; do
-    [[ -n "$key" ]] || continue
+    relative="${key#"${PREFIX%/}/"}"
+    [[ "$relative" =~ ^[0-9]{8}T[0-9]{6}Z/(postgres\.dump\.enc|minio-data\.tar\.gz\.enc|MANIFEST|SHA256SUMS)$ ]] || continue
     modified_epoch="$(date -u -d "$modified" +%s 2>/dev/null || printf '%s' "$cutoff")"
     if [[ "$modified_epoch" -lt "$cutoff" ]]; then
       log "retention: deleting $key"
