@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { AclAction, DocumentStatus, NotificationLevel, Prisma, RetentionAction } from "@prisma/client";
 import { AccessService, departmentMatch, type Actor } from "../../common/access/access.service";
 import type { Principal } from "../../common/auth/principal";
 import { advisoryLock, documentHoldLock } from "../../common/db/advisory-lock";
 import { PrismaService } from "../../common/prisma/prisma.service";
+import { removeCurrentObjects } from "../../common/storage/remove-current-objects";
 import { StorageService } from "../../common/storage/storage.service";
 import { AuditService } from "../audit/audit.service";
 import { NotificationsService } from "../notifications/notifications.service";
@@ -49,6 +50,7 @@ export type DestroyedFileRecord = {
 };
 
 export interface DestructionCertificate {
+  storageCleanup: "pending" | "accepted" | "failed" | "unverified" | "not_required";
   certificateRef: string;
   auditEventId: string;
   auditHash: string | null;
@@ -75,8 +77,6 @@ interface DestructionPlan {
 
 @Injectable()
 export class RetentionService {
-  private readonly logger = new Logger(RetentionService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessService,
@@ -357,8 +357,8 @@ export class RetentionService {
       return { document: updatedDocument, event: auditEvent, plan: destructionPlan };
     });
 
-    const storageErrors = plan ? await this.removeStoredObjects(item.documentId, plan) : 0;
-    if (storageErrors > 0) {
+    const failedKeys = plan ? await removeCurrentObjects(this.storage, plan.storageKeys) : [];
+    if (plan?.storageKeys.length) {
       await this.audit.record({
         action: "retention.destroy.storage",
         entityType: "Document",
@@ -366,14 +366,17 @@ export class RetentionService {
         actorId: actor.id || null,
         actorName: principal.name ?? principal.username ?? null,
         departmentId: item.document.departmentId,
-        result: "failure",
-        detail: { retentionItemId: id, storageErrors, storageKeys: plan?.storageKeys ?? [] },
+        result: failedKeys.length ? "failure" : "success",
+        detail: { retentionItemId: id, storageErrors: failedKeys.length, storageKeys: failedKeys },
       });
     }
 
     const updated = await this.prisma.retentionItem.findUnique({ where: { id }, include: ITEM_INCLUDE });
     const certificate = plan ? this.certificateFromEvent(event, updated ?? item) : null;
-    if (certificate) certificate.storageErrors = storageErrors;
+    if (certificate && plan?.storageKeys.length) {
+      certificate.storageErrors = failedKeys.length;
+      certificate.storageCleanup = failedKeys.length ? "failed" : "accepted";
+    }
 
     if (item.document.ownerId) {
       await this.notifications.push({
@@ -415,7 +418,10 @@ export class RetentionService {
       orderBy: { seq: "desc" },
     });
     const reported = (storageEvent?.detail as { storageErrors?: unknown } | null)?.storageErrors;
-    if (certificate && typeof reported === "number") certificate.storageErrors = reported;
+    if (typeof reported === "number") {
+      certificate.storageErrors = reported;
+      certificate.storageCleanup = reported > 0 ? "failed" : "accepted";
+    }
 
     return certificate;
   }
@@ -471,20 +477,6 @@ export class RetentionService {
     };
   }
 
-  private async removeStoredObjects(documentId: string, plan: DestructionPlan): Promise<number> {
-    const results = await Promise.allSettled(plan.storageKeys.map((key) => this.storage.remove(key)));
-    return results.reduce((failures, result) => {
-      if (result.status === "fulfilled") return failures;
-      this.logger.warn(`destroy(${documentId}) could not delete a stored object: ${(result.reason as Error).message}`);
-      return failures + 1;
-    }, 0);
-  }
-
-  /**
-   * The certificate is written inside the deletion transaction, so it can only attest to the rows the transaction
-   * removed. Anything that fails during the post-commit storage sweep is attested by its own
-   * `retention.destroy.storage` event, which `certificate` folds back into the reported figure.
-   */
   private destructionAuditDetail(item: Prisma.RetentionItemGetPayload<{ include: typeof ITEM_INCLUDE }>, plan: DestructionPlan) {
     return {
       policyName: item.policy.name,
@@ -493,6 +485,7 @@ export class RetentionService {
       dueAt: item.dueAt.toISOString(),
       files: plan.files,
       fileCount: plan.files.length,
+      storageKeys: plan.storageKeys,
       totalBytes: plan.totalBytes,
       storageErrors: 0,
     };
@@ -508,6 +501,7 @@ export class RetentionService {
     if (!destruction) return null;
 
     return {
+      storageCleanup: destruction.storageKeys ? (destruction.storageKeys.length ? "pending" : "not_required") : "unverified",
       certificateRef: `DES-${event.id.slice(0, 8).toUpperCase()}-${event.ts.getUTCFullYear()}`,
       auditEventId: event.id,
       auditHash: event.hash,

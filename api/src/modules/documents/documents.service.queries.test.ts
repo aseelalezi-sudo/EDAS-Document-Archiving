@@ -96,7 +96,7 @@ function buildService() {
         if (!where?.id) return null;
         if (!select) return where.id === "doc-1" ? state.doc : null;
         if (select.docNo) return listRow({ id: where.id });
-        if (select.deletedAt) return { deletedAt: state.doc.deletedAt, status: state.doc.status };
+        if (select.deletedAt) return { deletedAt: state.doc.deletedAt, status: state.doc.status, isRecord: state.doc.isRecord };
         if (select.signatureStatus) return { signatureStatus: state.signatureStatus };
         if (select.isRecord) return { isRecord: state.isRecord };
         return listRow({ id: where.id });
@@ -538,6 +538,20 @@ describe("DocumentsService trash and restore", () => {
 });
 
 describe("DocumentsService versions", () => {
+  it.each(["add", "restore"])("rejects a version %s if disposal finished while waiting for the document lock", async (operation) => {
+    const { service, prisma, state, audit } = buildService();
+    prisma.$executeRaw.mockImplementationOnce(async () => {
+      state.doc = entity({ status: "DISPOSED" });
+      return 1;
+    });
+    const write = operation === "add"
+      ? service.addVersion(PRINCIPAL, "doc-1", { fileId: "file-1" })
+      : service.restoreVersion(PRINCIPAL, "doc-1", "ver-1");
+    await expect(write).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.documentVersion.updateMany).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it("refuses a new version on a disposed document", async () => {
     const { service, prisma, state } = buildService();
     state.doc = entity({ status: "DISPOSED" });

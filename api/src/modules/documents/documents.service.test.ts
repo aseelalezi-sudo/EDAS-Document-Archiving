@@ -359,7 +359,7 @@ describe("DocumentsService purge", () => {
     expect(prisma.document.deleteMany).toHaveBeenCalledWith({ where: { id: "doc-1", deletedAt: { not: null } } });
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "document.purge", entityId: "doc-1" }), expect.anything());
-    expect(result).toEqual({ id: "doc-1", deleted: true, purged: true });
+    expect(result).toEqual({ id: "doc-1", deleted: true, purged: true, storageErrors: 0 });
   });
 
   it("removes the stored object only when no other document version still uses it", async () => {
@@ -447,7 +447,7 @@ describe("DocumentsService purge", () => {
     prisma.fileObject.findMany.mockResolvedValue([{ id: "file-own", storageKey: "documents/2026/own.pdf" }]);
     storage.remove.mockRejectedValue(new Error("S3 is unreachable"));
 
-    await expect(service.purge({ sub: "user-1" } as never, "doc-1")).resolves.toEqual({ id: "doc-1", deleted: true, purged: true });
+    await expect(service.purge({ sub: "user-1" } as never, "doc-1")).resolves.toEqual({ id: "doc-1", deleted: true, purged: true, storageErrors: 1 });
 
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({

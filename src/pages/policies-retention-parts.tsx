@@ -158,9 +158,18 @@ export function DestructionCertificateModal({
             <p className="mt-3 flex items-start gap-2 rounded-lg bg-rose-50 p-3 text-xs font-semibold text-rose-800 dark:bg-rose-500/10 dark:text-rose-300">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               {L(
-                `تم حذف البيانات الوصفية لكن تعذّر حذف ${certificate.storageErrors} من الكائنات المخزنة. أعد تنفيذ الإتلاف أو راجع مسؤول التخزين.`,
-                `Records were removed but ${certificate.storageErrors} stored object(s) could not be deleted. Re-run disposal or contact the storage administrator.`,
+                `تم حذف البيانات الوصفية لكن تعذّر حذف ${certificate.storageErrors} من الكائنات المخزنة. راجع مسؤول التخزين لمتابعة المفاتيح المسجلة في سجل التدقيق.`,
+                `Records were removed but ${certificate.storageErrors} stored object(s) could not be deleted. Contact the storage administrator to reconcile the keys in the audit log.`,
               )}
+            </p>
+          )}
+          {!demoMode && certificate.storageErrors === 0 && (
+            <p className="mt-3 text-xs font-semibold">
+              {certificate.storageCleanup === "accepted"
+                ? L("قبل مخزن الملفات طلبات حذف الكائنات الحالية.", "Storage accepted the current-object deletion requests.")
+                : certificate.storageCleanup === "not_required"
+                  ? L("لم تتطلب هذه العملية حذف كائنات من التخزين.", "This operation required no storage deletions.")
+                  : L("نتيجة حذف كائنات التخزين غير مؤكدة في سجل التدقيق.", "The audit trail has no confirmed storage deletion outcome.")}
             </p>
           )}
           <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3">
@@ -174,10 +183,7 @@ export function DestructionCertificateModal({
               ],
               [L("الأساس النظامي", "Legal basis"), certificate.policy.legalBasis ?? "—"],
               [L("تاريخ نهاية الاحتفاظ", "Retention end"), stamp(certificate.dueAt)],
-              [
-                L("طريقة الإتلاف", "Destruction method"),
-                L("حذف آمن لكائنات التخزين والسجلات", "Secure removal of stored objects and records"),
-              ],
+              [L("طريقة الإتلاف", "Destruction method"), L("إزالة ارتباطات إصدارات الوثيقة", "Removal of document version references")],
               [L("تاريخ الإتلاف", "Destruction date"), stamp(certificate.destroyedAt)],
               [L("تم بواسطة", "Performed by"), certificate.performedBy ?? "—"],
               [L("ملاحظة المنفّذ", "Operator note"), certificate.note ?? "—"],
@@ -190,7 +196,7 @@ export function DestructionCertificateModal({
           </div>
           <div className="mt-5">
             <p className="mb-2 text-[10px] font-semibold uppercase text-ink-400">
-              {L(`المحتويات المتلفة (${certificate.fileCount})`, `Destroyed content (${certificate.fileCount})`)}
+              {L(`الإصدارات المسجلة (${certificate.fileCount})`, `Recorded versions (${certificate.fileCount})`)}
             </p>
             {certificate.files.length === 0 ? (
               <p className="text-xs text-ink-500">
@@ -219,7 +225,7 @@ export function DestructionCertificateModal({
                   </tbody>
                 </table>
                 <p className="mt-2 text-[11px] font-semibold text-ink-500">
-                  {L("إجمالي البيانات المتلفة", "Total destroyed data")}: {formatBytes(certificate.totalBytes)}
+                  {L("الحجم الإجمالي للإصدارات", "Total version size")}: {formatBytes(certificate.totalBytes)}
                 </p>
               </div>
             )}
@@ -232,8 +238,8 @@ export function DestructionCertificateModal({
           )}
           <p className="mt-4 rounded-lg bg-ink-50 p-3 text-xs leading-relaxed text-ink-600 dark:bg-ink-950 dark:text-ink-300">
             {L(
-              "نشهد بأن الوثيقة المذكورة أعلاه قد تم إتلافها نهائياً وبطريقة آمنة وفقاً لسياسة الاحتفاظ المعتمدة، وتم تسجيل العملية في سجل التدقيق غير القابل للتعديل.",
-              "We certify that the above document has been permanently and securely destroyed in accordance with the approved retention policy, and that the operation has been recorded in the immutable audit trail.",
+              "يوثّق هذا السجل إجراء الاحتفاظ على الوثيقة. يتطلب إثبات المحو المادي للإصدارات السابقة والمشتقات والنسخ الاحتياطية تحققاً مستقلاً.",
+              "This record documents the retention action. Physical erasure of historical object versions, derivatives and backups requires separate verification.",
             )}
           </p>
           <div className="mt-6 grid grid-cols-3 gap-4 text-center">

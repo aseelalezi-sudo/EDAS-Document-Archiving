@@ -1149,12 +1149,31 @@ function DocumentStore({ children }: { children: ReactNode }) {
     return true;
   };
 
+  const reportStorageErrors = (count: number) => {
+    if (count > 0) {
+      toast({
+        type: "warning",
+        title: lang === "en" ? "Storage cleanup needs attention" : "حذف الملفات من التخزين يحتاج إلى متابعة",
+        message:
+          lang === "en"
+            ? `The records were removed. Storage deletion failed for ${count} object(s).`
+            : `حُذفت السجلات وتعذّر حذف ${count} من كائنات التخزين.`,
+      });
+    }
+    return count === 0;
+  };
+
+  const purgeStoredDocuments = async (ids: string[]) => {
+    const results = await Promise.all(ids.map((id) => docsApi.purgeDocument(id)));
+    await refetchDocuments();
+    return reportStorageErrors(results.reduce((sum, item) => sum + (item?.storageErrors ?? 0), 0));
+  };
+
   const purgeDocs = async (ids: string[]): Promise<boolean> => {
     setTrash((prev) => prev.filter((x) => !ids.includes(x.doc.id)));
     if (apiMode) {
       try {
-        await Promise.all(ids.map((id) => docsApi.purgeDocument(id)));
-        await refetchDocuments();
+        if (!(await purgeStoredDocuments(ids))) return false;
       } catch (error) {
         recoverDocuments(error);
         return false;
@@ -1174,8 +1193,7 @@ function DocumentStore({ children }: { children: ReactNode }) {
     setTrash([]);
     if (apiMode && ids.length > 0) {
       try {
-        await Promise.all(ids.map((id) => docsApi.purgeDocument(id)));
-        await refetchDocuments();
+        if (!(await purgeStoredDocuments(ids))) return false;
       } catch (error) {
         recoverDocuments(error);
         return false;
@@ -1406,9 +1424,14 @@ function DocumentStore({ children }: { children: ReactNode }) {
   const removeRetention = async (id: string, payload?: { dueAt?: string; action?: "REVIEW" | "ARCHIVE" | "DESTROY" }): Promise<boolean> => {
     if (apiMode) {
       try {
+        let storageErrors = 0;
         if (payload?.dueAt) await domainApi.extendRetention(id, payload.dueAt);
-        else if (payload?.action) await domainApi.executeRetention(id, payload.action);
+        else if (payload?.action) {
+          const result = await domainApi.executeRetention(id, payload.action);
+          storageErrors = result.certificate?.storageErrors ?? 0;
+        }
         await refetchRetention();
+        if (!reportStorageErrors(storageErrors)) return false;
       } catch (error) {
         recoverRetention(error);
         return false;

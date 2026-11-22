@@ -597,15 +597,15 @@ export function RetentionQueue() {
           const target = dispose;
           void removeItem(target.id, { action: "DESTROY" }).then((ok) => {
             if (!ok) return;
-            toast({ type: "success", title: L("تم الإتلاف الآمن", "Securely disposed"), message: target.docTitle });
+            toast({ type: "success", title: L("نُفّذ إجراء الاحتفاظ", "Retention action recorded"), message: target.docTitle });
             void openCertificate(target.id);
           });
         }}
         title={L("تأكيد الإتلاف", "Confirm disposal")}
         danger
         message={L(
-          `سيتم إتلاف الوثيقة نهائياً بطريقة آمنة لا يمكن التراجع عنها. تأكد من عدم وجود حجز قانوني.`,
-          `The document will be permanently and securely disposed. Ensure no legal hold exists.`,
+          `ستُزال إصدارات الوثيقة من الأرشيف ويُطلب حذف ملفاتها غير المشتركة. تأكد من عدم وجود حجز قانوني.`,
+          `Document versions will be removed from the archive and deletion requested for their unshared files. Ensure no legal hold exists.`,
         )}
         confirmText={L("إتلاف نهائي", "Dispose permanently")}
       />
@@ -622,8 +622,8 @@ export function RetentionQueue() {
                 `${disposables.length} documents will be permanently disposed. ${heldSelected.length} documents on legal hold will be skipped.`,
               )
             : L(
-                `سيتم إتلاف ${disposables.length} وثيقة نهائياً بطريقة آمنة لا يمكن التراجع عنها.`,
-                `${disposables.length} documents will be permanently and securely disposed. This cannot be undone.`,
+                `سيتم إتلاف ${disposables.length} وثيقة من الأرشيف. لا يمكن التراجع عن إزالة سجلات الإصدارات.`,
+                `${disposables.length} documents will be removed from the archive. Version record removal cannot be undone.`,
               )
         }
         confirmText={L("إتلاف نهائي", "Dispose permanently")}

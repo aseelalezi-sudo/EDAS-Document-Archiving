@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { AclAction, Document, DocumentStatus, Prisma } from "@prisma/client";
 import { advisoryLock, documentHoldLock } from "../../common/db/advisory-lock";
 import { isUniqueViolation } from "../../common/db/prisma-errors";
 import { AccessService, type Actor } from "../../common/access/access.service";
 import type { Principal } from "../../common/auth/principal";
 import { PrismaService } from "../../common/prisma/prisma.service";
+import { removeCurrentObjects } from "../../common/storage/remove-current-objects";
 import { StorageService } from "../../common/storage/storage.service";
 import { AuditService } from "../audit/audit.service";
 import { PreviewService } from "../preview/preview.service";
@@ -55,8 +56,6 @@ type DocumentRow = Prisma.DocumentGetPayload<{ select: typeof LIST_SELECT }>;
 
 @Injectable()
 export class DocumentsService {
-  private readonly logger = new Logger(DocumentsService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly access: AccessService,
@@ -346,7 +345,7 @@ export class DocumentsService {
           entityId: id,
           actorId: actor.id,
           departmentId: document.departmentId,
-          detail: { docNo: document.docNo, purgedFiles: files.length },
+          detail: { docNo: document.docNo, purgedFiles: files.length, storageKeys: files.map((file) => file.storageKey) },
         },
         tx,
       );
@@ -354,31 +353,20 @@ export class DocumentsService {
       return { storedFiles: files };
     });
 
-    let storageErrors = 0;
-    await Promise.all(
-      storedFiles.map(async (file) => {
-        try {
-          await this.storage.remove(file.storageKey);
-        } catch (error) {
-          storageErrors += 1;
-          this.logger.warn(`purge(${id}) could not delete ${file.storageKey}: ${(error as Error).message}`);
-        }
-      }),
-    );
-
-    if (storageErrors > 0) {
+    const failedKeys = await removeCurrentObjects(this.storage, storedFiles.map((file) => file.storageKey));
+    if (storedFiles.length) {
       await this.audit.record({
         action: "document.purge.storage",
         entityType: "Document",
         entityId: id,
         actorId: actor.id,
         departmentId: document.departmentId,
-        result: "failure",
-        detail: { docNo: document.docNo, storageErrors, storageKeys: storedFiles.map((file) => file.storageKey) },
+        result: failedKeys.length ? "failure" : "success",
+        detail: { docNo: document.docNo, storageErrors: failedKeys.length, storageKeys: failedKeys },
       });
     }
 
-    return { id, deleted: true, purged: true };
+    return { id, deleted: true, purged: true, storageErrors: failedKeys.length };
   }
 
   async addVersion(principal: Principal, id: string, dto: AddVersionDto) {
@@ -393,7 +381,7 @@ export class DocumentsService {
     let version: { version: number; fileId: string; isCurrent: boolean };
     try {
       version = await this.prisma.$transaction(async (tx) => {
-        await advisoryLock(tx, documentHoldLock(id));
+        await this.lockVersionTarget(tx, id);
 
         const latest = await tx.documentVersion.findFirst({
           where: { documentId: id },
@@ -457,15 +445,14 @@ export class DocumentsService {
     if (document.status === DocumentStatus.DISPOSED) throw new ConflictException("Disposed documents cannot change version");
     if (document.deletedAt) throw new ConflictException("Document is in the trash");
 
-    const version = await this.prisma.documentVersion.findFirst({
-      where: { id: versionId, documentId: id },
-      include: { file: true },
-    });
-    if (!version) throw new NotFoundException("Version not found");
-    if (version.version === 1 && document.isRecord) throw new ConflictException("Declared records cannot be reopened");
-
-    await this.prisma.$transaction(async (tx) => {
-      await advisoryLock(tx, documentHoldLock(id));
+    const fileId = await this.prisma.$transaction(async (tx) => {
+      const current = await this.lockVersionTarget(tx, id);
+      const version = await tx.documentVersion.findFirst({
+        where: { id: versionId, documentId: id },
+        include: { file: true },
+      });
+      if (!version) throw new NotFoundException("Version not found");
+      if (version.version === 1 && current.isRecord) throw new ConflictException("Declared records cannot be reopened");
 
       await tx.documentVersion.updateMany({ where: { documentId: id }, data: { isCurrent: false } });
       await tx.documentVersion.update({ where: { id: version.id }, data: { isCurrent: true } });
@@ -493,9 +480,10 @@ export class DocumentsService {
         },
         tx,
       );
+      return version.file.id;
     });
 
-    void this.preview.prewarm(version.file.id, actor);
+    void this.preview.prewarm(fileId, actor);
 
     return this.detail(id);
   }
@@ -631,6 +619,7 @@ export class DocumentsService {
     if (document.isRecord) return this.detail(id);
 
     await this.prisma.$transaction(async (tx) => {
+      await advisoryLock(tx, documentHoldLock(id));
       const claimed = await tx.document.updateMany({
         where: { id, isRecord: false, deletedAt: null, status: { not: DocumentStatus.DISPOSED } },
         data: { isRecord: true, status: "ARCHIVED" },
@@ -749,6 +738,15 @@ export class DocumentsService {
     const folder = await this.prisma.folder.findUnique({ where: { id: folderId }, select: { departmentId: true } });
     if (!folder) throw new NotFoundException("Folder not found");
     return folder.departmentId ?? fallback;
+  }
+
+  private async lockVersionTarget(tx: Prisma.TransactionClient, id: string) {
+    await advisoryLock(tx, documentHoldLock(id));
+    const current = await tx.document.findUnique({ where: { id }, select: { status: true, deletedAt: true, isRecord: true } });
+    if (!current) throw new NotFoundException("Document not found");
+    if (current.status === DocumentStatus.DISPOSED) throw new ConflictException("Disposed documents cannot change version");
+    if (current.deletedAt) throw new ConflictException("Document is in the trash");
+    return current;
   }
 
   private async mustFind(id: string): Promise<Document> {
