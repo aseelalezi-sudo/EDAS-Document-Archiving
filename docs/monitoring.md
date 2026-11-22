@@ -52,6 +52,8 @@ docker compose --profile observability up -d
 - اربط receiver فعليًا (بريد، Slack، PagerDuty، webhook) قبل الإنتاج؛ لا تُرسل بيانات مستندات أو أسرار في التنبيهات.
 - كل تنبيه يحمل `severity`، ويفضّل إضافة `runbook_url` في `annotations`.
 
+تُشغّل مهمة **Backup and alerting scripts** إعداد الـwebhook الناتج من سكربت التشغيل، وترسل تنبيهًا تجريبيًا إلى Alertmanager وتتحقق من استلامه عبر مستقبل على عنوان loopback داخل مشغّل CI. تظل قناة الإنتاج مرتبطة بإعداد النشر الفعلي.
+
 ## الأمان
 
 - `/api/v1/metrics` مقيّد بـ`METRICS_TOKEN` في الإنتاج؛ يستخدمه Prometheus عبر Docker secret `/run/secrets/metrics_token`.

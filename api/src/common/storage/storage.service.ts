@@ -51,19 +51,17 @@ export class StorageService {
       forcePathStyle: true as const,
       credentials,
     };
-    this.client = new S3Client({ ...baseConfig, endpoint: `${useSsl ? "https" : "http"}://${endpoint}:${port}` });
+    const internalEndpoint = `${useSsl ? "https" : "http"}://${endpoint}:${port}`;
+    this.client = new S3Client({ ...baseConfig, endpoint: internalEndpoint });
 
     const publicEndpoint = config.get<string>("MINIO_PUBLIC_ENDPOINT", "");
-    if (publicEndpoint) {
-      const publicPort = config.get<string>("MINIO_PUBLIC_PORT", port);
-      const publicUseSsl = config.get<string>("MINIO_PUBLIC_USE_SSL", String(useSsl)) === "true";
-      this.presignClient = new S3Client({
-        ...baseConfig,
-        endpoint: `${publicUseSsl ? "https" : "http"}://${publicEndpoint}:${publicPort}`,
-      });
-    } else {
-      this.presignClient = this.client;
-    }
+    const publicPort = config.get<string>("MINIO_PUBLIC_PORT", port);
+    const publicUseSsl = config.get<string>("MINIO_PUBLIC_USE_SSL", String(useSsl)) === "true";
+    this.presignClient = new S3Client({
+      ...baseConfig,
+      endpoint: publicEndpoint ? `${publicUseSsl ? "https" : "http"}://${publicEndpoint}:${publicPort}` : internalEndpoint,
+      requestChecksumCalculation: "WHEN_REQUIRED",
+    });
   }
 
   get bucketName(): string {

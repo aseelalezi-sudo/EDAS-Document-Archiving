@@ -106,13 +106,16 @@ jobs:
   backup:
     name: Backup and alerting scripts
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - name: Shell syntax
-        run: bash -n scripts/backup/*.sh infra/monitoring/alertmanager-entrypoint.sh
+        run: |
+          for script in scripts/backup/*.sh; do bash -n "$script"; done
+          sh -n infra/monitoring/alertmanager-entrypoint.sh
       - name: Off-site backup self-test (local fake S3)
         run: bash scripts/backup/offsite.test.sh
       - name: Render and validate the Alertmanager webhook config
@@ -127,6 +130,15 @@ jobs:
             -v "$RUNNER_TEMP/am:/cfg:ro" \
             prom/alertmanager:v0.28.1@sha256:27c475db5fb156cab31d5c18a4251ac7ed567746a2483ff264516437a39b15ba \
             check-config /cfg/alertmanager.yml
+      - name: Verify Alertmanager delivery to a loopback webhook
+        run: node scripts/backup/alert-delivery.test.mjs "$RUNNER_TEMP/am"
+      - run: npm ci --legacy-peer-deps
+      - run: npm run shared:build
+      - run: npm ci --prefix api
+      - run: npm --prefix api run prisma:generate
+      - run: npm run api:build
+      - name: Restore PostgreSQL and MinIO and open the recovered document
+        run: bash scripts/backup/restore-drill.sh
 
   browser:
     name: Browser smoke

@@ -30,6 +30,9 @@ describe("StorageService presign endpoints", () => {
     expect(upload).toContain("http://localhost:9001/edas-documents/documents/2026/a.txt");
     expect(download).toContain("http://localhost:9001/edas-documents/documents/2026/a.txt");
     expect(upload).not.toContain("minio:9000");
+    const params = new URL(upload).searchParams;
+    expect(params.has("x-amz-checksum-crc32")).toBe(false);
+    expect(params.has("x-amz-sdk-checksum-algorithm")).toBe(false);
   });
 
   it("presigns against the internal endpoint by default", async () => {
