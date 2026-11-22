@@ -1,0 +1,70 @@
+import assert from "node:assert/strict";
+import { createHash, randomUUID } from "node:crypto";
+import { readFile, writeFile } from "node:fs/promises";
+
+const [mode, path] = process.argv.slice(2);
+const base = `http://127.0.0.1:${process.env.PORT}/api/v1`;
+
+async function request(url, options) {
+  const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15_000) });
+  assert(response.ok, `${options?.method ?? "GET"} ${new URL(url).pathname} returned ${response.status}`);
+  return response;
+}
+
+const tokenResponse = await request(`${process.env.KEYCLOAK_ISSUER}/protocol/openid-connect/token`, {
+  method: "POST",
+  body: new URLSearchParams({
+    grant_type: "password",
+    client_id: "edas-cli",
+    username: process.env.KEYCLOAK_ADMIN,
+    password: process.env.KEYCLOAK_ADMIN_PASSWORD,
+    scope: "openid",
+  }),
+});
+const { access_token: token } = await tokenResponse.json();
+assert(token, "Keycloak must issue an access token");
+const auth = { Authorization: `Bearer ${token}` };
+
+async function api(route, body) {
+  const response = await request(
+    base + route,
+    body
+      ? { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : { headers: auth },
+  );
+  return (await response.json()).data;
+}
+
+function sha256(value) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+if (mode === "create") {
+  const originalName = "restore-fixture.pdf";
+  const mimeType = "application/pdf";
+  const title = `Recovery fixture ${randomUUID()}`;
+  const bytes = Buffer.from(`%PDF-1.7\n% ${title}\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n`);
+  const sizeBytes = bytes.length;
+  const checksumSha256 = sha256(bytes);
+  const { url, storageKey } = await api("/files/presign-upload", { fileName: originalName, mimeType, sizeBytes });
+  await request(url, { method: "PUT", headers: { "Content-Type": mimeType }, body: bytes });
+  const file = await api("/files", { storageKey, originalName, mimeType, sizeBytes, checksumSha256 });
+  const doc = await api("/documents", { title, fileId: file.id });
+  await writeFile(path, JSON.stringify({ id: doc.id, fileId: file.id, title, checksumSha256 }), { mode: 0o600 });
+  console.log("Uploaded and registered a test PDF through the source API");
+} else {
+  assert.equal(mode, "check");
+  const { id, fileId, title, checksumSha256 } = JSON.parse(await readFile(path, "utf8"));
+  const doc = await api(`/documents/${id}`);
+  assert.equal(doc.title, title, "Restored PostgreSQL must contain the original document");
+  assert.equal(doc.versions[0].file.id, fileId, "Restored version must point to the original file");
+
+  const { url } = await api(`/files/${fileId}/download`);
+  const download = await request(url);
+  assert.equal(sha256(Buffer.from(await download.arrayBuffer())), checksumSha256, "Restored download bytes changed");
+
+  const preview = await request(`${base}/preview/files/${fileId}/content?kind=original`, { headers: auth });
+  assert.match(preview.headers.get("content-disposition") ?? "", /^inline/);
+  assert.equal(sha256(Buffer.from(await preview.arrayBuffer())), checksumSha256, "Restored preview bytes changed");
+  console.log("Verified the restored document, original download and inline preview through the API");
+}
