@@ -2,18 +2,22 @@ import assert from "node:assert/strict";
 import { cpus, totalmem } from "node:os";
 import { readFile, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
+import { setTimeout as sleep } from "node:timers/promises";
 
 function percentile(values, ratio) {
   if (!values.length) return null;
   return Math.round([...values].sort((a, b) => a - b)[Math.ceil(values.length * ratio) - 1]);
 }
 
-export async function runLoad({ api, request, base, auth, employee, fixture, sha256 }) {
+export async function runLoad({ api, request, base, auth, employee, fixture, sha256, refreshAuth }) {
   const documents = Number(process.env.LOAD_DOCUMENTS);
   const concurrency = Number(process.env.LOAD_CONCURRENCY ?? 12);
   const rounds = Number(process.env.LOAD_ROUNDS ?? 12);
+  const durationSeconds = Number(process.env.LOAD_DURATION_SECONDS ?? 0);
   assert(Number.isInteger(concurrency) && concurrency >= 1 && concurrency <= 50);
   assert(Number.isInteger(rounds) && rounds >= 8 && rounds <= 100);
+
+  assert(Number.isInteger(durationSeconds) && durationSeconds >= 0 && durationSeconds <= 7200);
 
   const filePath = `/files/${fixture.fileId}`;
   const previewPath = `/preview/files/${fixture.fileId}/content?kind=original`;
@@ -48,6 +52,34 @@ export async function runLoad({ api, request, base, auth, employee, fixture, sha
   assert(phraseSearch.meta.total > 0);
   assert(phraseSearch.items.every((doc) => doc.description === "عبارة اختبار الأرشيف"));
 
+  const mimeType = "application/pdf";
+  async function storePdf(bytes) {
+    const originalName = "load-fixture.pdf";
+    const sizeBytes = bytes.length;
+    const checksumSha256 = sha256(bytes);
+    const { url, storageKey } = await api("/files/presign-upload", { fileName: originalName, mimeType, sizeBytes });
+    await request(url, { method: "PUT", headers: { "Content-Type": mimeType }, body: bytes });
+    const file = await api("/files", { storageKey, originalName, mimeType, sizeBytes, checksumSha256 });
+    assert.equal(file.checksumSha256, checksumSha256);
+    assert((await api("/documents", { title: "Load upload", fileId: file.id })).id);
+    return { fileId: file.id, checksumSha256, sizeBytes };
+  }
+
+  const payloadSizes = [64, 512, 64, 64, 4096, 64, 512, 64, 64, 12288].map((sizeKiB) => sizeKiB * 1024);
+  let makePdf;
+  const readFixtures = [{ ...fixture, sizeBytes: original.length }];
+  if (durationSeconds) {
+    ({ makePdf } = await import("./synthetic-pdf.mjs"));
+    for (const bytes of new Set(payloadSizes)) {
+      readFixtures.push(await storePdf(await makePdf(bytes)));
+    }
+    assert.equal(new Set(readFixtures.map((item) => item.fileId)).size, readFixtures.length);
+    assert.equal(new Set(readFixtures.map((item) => item.checksumSha256)).size, readFixtures.length);
+  }
+  let nextDownload = 0;
+  let nextPreview = 0;
+  let nextUpload = 0;
+
   const operations = {
     adminList: async () => assert.equal((await api("/documents?after=start&pageSize=25")).items.length, 25),
     employeeList: async () => assert.equal((await api("/documents?after=start&pageSize=25", undefined, employee)).items.length, 25),
@@ -62,51 +94,73 @@ export async function runLoad({ api, request, base, auth, employee, fixture, sha
       assert.deepEqual(found.items.map(({ id }) => id), phraseSearch.items.map(({ id }) => id));
     },
     download: async () => {
-      const { url } = await api(filePath + "/download");
-      assert.equal(sha256(Buffer.from(await (await request(url)).arrayBuffer())), fixture.checksumSha256);
+      const item = readFixtures[nextDownload++ % readFixtures.length];
+      const { url } = await api(`/files/${item.fileId}/download`);
+      assert.equal(sha256(Buffer.from(await (await request(url)).arrayBuffer())), item.checksumSha256);
+      return item.sizeBytes;
     },
     preview: async () => {
-      const response = await request(base + previewPath, { headers: auth });
+      const item = readFixtures[nextPreview++ % readFixtures.length];
+      const response = await request(`${base}/preview/files/${item.fileId}/content?kind=original`, { headers: auth });
       assert.match(response.headers.get("content-disposition") ?? "", /^inline/);
-      assert.equal(sha256(Buffer.from(await response.arrayBuffer())), fixture.checksumSha256);
+      assert.equal(sha256(Buffer.from(await response.arrayBuffer())), item.checksumSha256);
+      return item.sizeBytes;
     },
     uploadAndRegister: async () => {
-      const mimeType = "application/pdf";
-      const originalName = "load-fixture.pdf";
-      const sizeBytes = original.length;
-      const { url, storageKey } = await api("/files/presign-upload", { fileName: originalName, mimeType, sizeBytes });
-      await request(url, { method: "PUT", headers: { "Content-Type": mimeType }, body: original });
-      const file = await api("/files", { storageKey, originalName, mimeType, sizeBytes, checksumSha256: fixture.checksumSha256 });
-      assert.equal(file.checksumSha256, fixture.checksumSha256);
-      assert((await api("/documents", { title: "Load upload", fileId: file.id })).id);
+      const bytes = makePdf ? await makePdf(payloadSizes[nextUpload++ % payloadSizes.length]) : original;
+      return (await storePdf(bytes)).sizeBytes;
     },
   };
 
   const names = Object.keys(operations);
   const samples = Object.fromEntries(names.map((name) => [name, []]));
   const started = performance.now();
+  const deadline = started + durationSeconds * 1000;
+  const intervalMs = durationSeconds ? Math.max(3000, concurrency * 250) : 0;
   await Promise.all(
     Array.from({ length: concurrency }, async (_, worker) => {
-      for (let round = 0; round < rounds; round++) {
+      if (intervalMs) await sleep((worker * intervalMs) / concurrency);
+      for (let round = 0; durationSeconds ? performance.now() < deadline : round < rounds; round++) {
         const name = names[(round + worker) % names.length];
         const start = performance.now();
         let error = null;
+        let bytes = 0;
         try {
-          await operations[name]();
+          if (durationSeconds) await refreshAuth();
+          bytes = (await operations[name]()) ?? 0;
         } catch (cause) {
           error = cause.name === "AssertionError" ? cause.message.split("\n")[0] : cause.name;
         }
-        samples[name].push({ latencyMs: performance.now() - start, error });
+        const latencyMs = performance.now() - start;
+        samples[name].push({ latencyMs, error, bytes, minute: Math.floor((start - started) / 60_000) + 1 });
+        if (intervalMs) await sleep(Math.max(0, Math.min(intervalMs - latencyMs, deadline - performance.now())));
       }
     }),
   );
   const elapsedMs = Math.round(performance.now() - started);
+  const attempts = Object.values(samples).reduce((sum, rows) => sum + rows.length, 0);
   const report = {
     revision: process.env.GITHUB_SHA ?? null,
-    dataset: { documents, departments: 16, folders: 256, fileBytes: original.length, seededFilesShared: true },
+    dataset: {
+      documents,
+      departments: 16,
+      folders: 256,
+      seededFilesShared: true,
+      readFixtureSizesBytes: readFixtures.map((item) => item.sizeBytes),
+      uploadPayloadSizesBytes: durationSeconds ? payloadSizes : [original.length],
+    },
     runner: { cpu: cpus()[0]?.model, logicalCpus: cpus().length, ramMiB: Math.round(totalmem() / 1024 ** 2) },
     apiPeakRssMiB: null,
-    workload: { concurrency, rounds, deepPage, elapsedMs, operationsPerSecond: +(1000 * concurrency * rounds / elapsedMs).toFixed(2) },
+    workload: {
+      concurrency,
+      rounds: durationSeconds ? null : rounds,
+      durationSeconds,
+      intervalMs,
+      deepPage,
+      elapsedMs,
+      attempts,
+      operationsPerSecond: +((1000 * attempts) / elapsedMs).toFixed(2),
+    },
     operations: {},
   };
   if (process.env.LOAD_API_PID) {
@@ -115,22 +169,32 @@ export async function runLoad({ api, request, base, auth, employee, fixture, sha
     if (peak) report.apiPeakRssMiB = Math.round(Number(peak[1]) / 1024);
   }
   let errors = 0;
+  const minutes = new Map();
   for (const [name, rows] of Object.entries(samples)) {
     const successes = rows.filter(({ error }) => !error).map(({ latencyMs }) => latencyMs);
     const failures = rows.length - successes.length;
     errors += failures;
+    for (const row of rows) {
+      if (!minutes.has(row.minute)) minutes.set(row.minute, { minute: row.minute, attempts: 0, failures: 0 });
+      const bucket = minutes.get(row.minute);
+      bucket.attempts++;
+      if (row.error) bucket.failures++;
+    }
     report.operations[name] = {
       attempts: rows.length,
       failures,
+      verifiedBytes: rows.reduce((sum, row) => sum + row.bytes, 0),
       p50Ms: percentile(successes, 0.5),
       p95Ms: percentile(successes, 0.95),
       maxMs: percentile(successes, 1),
       errorExamples: [...new Set(rows.flatMap(({ error }) => (error ? [error] : [])))].slice(0, 3),
     };
   }
-  report.errorRatePercent = +(100 * errors / (concurrency * rounds)).toFixed(2);
+  report.minutes = [...minutes.values()].sort((a, b) => a.minute - b.minute);
+  report.errorRatePercent = +((100 * errors) / attempts).toFixed(2);
   const json = JSON.stringify(report, null, 2) + "\n";
   await writeFile(process.env.LOAD_REPORT, json);
   console.log(json);
+  assert(Object.values(samples).every((rows) => rows.length > 0), "Every workload operation must run");
   assert.equal(errors, 0, "Some load operations failed; see the benchmark report");
 }

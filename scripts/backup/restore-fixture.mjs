@@ -48,7 +48,28 @@ if (mode === "employee") {
   const { runLoad } = await import("../performance/run.mjs");
   const fixture = JSON.parse(await readFile(path, "utf8"));
   const employee = await login("employee", "employee");
-  await runLoad({ api, request, base, auth, employee, fixture, sha256 });
+  let refreshPending;
+  function isExpiring(headers) {
+    const payload = headers.Authorization.split(".")[1];
+    const expiry = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")).exp;
+    return expiry * 1000 - Date.now() < 60_000;
+  }
+
+  function refreshAuth() {
+    if (!isExpiring(auth) && !isExpiring(employee)) return;
+    refreshPending ??= Promise.all([
+      login(process.env.KEYCLOAK_ADMIN, process.env.KEYCLOAK_ADMIN_PASSWORD),
+      login("employee", "employee"),
+    ])
+      .then(([adminAuth, employeeAuth]) => {
+        Object.assign(auth, adminAuth);
+        Object.assign(employee, employeeAuth);
+      })
+      .finally(() => { refreshPending = undefined; });
+    return refreshPending;
+  }
+
+  await runLoad({ api, request, base, auth, employee, fixture, sha256, refreshAuth });
 } else if (mode === "create") {
   const originalName = "restore-fixture.pdf";
   const mimeType = "application/pdf";
