@@ -86,6 +86,7 @@ export const docsApi = {
 
   listDocuments: (params: ListDocumentsParams = {}) => client.listDocuments(params),
   purgeTrash: (ids: string[]) => client.post<{ failed: number; storageErrors: number }>("/documents/trash/purge", { ids }),
+  listDocumentWindow: (after: string, pageSize: number) => client.listDocumentWindow(after, pageSize),
   trashIds: () => client.get<string[]>("/documents/trash/ids"),
   trashDocuments: (params: ListDocumentsParams = {}) =>
     client.get<Paginated<DocumentDto>>("/documents/trash", {

@@ -98,6 +98,7 @@ const EXACT_REASONS: Record<string, string> = {
   "Only the task creator can delete it": "منشئ المهمة وحده يحذفها",
   "Only the user who checked out the document can check it in": "المستخدم الذي استخرج الوثيقة وحده يعيد تسجيلها",
   "Only trashed documents can be purged": "الحذف النهائي يسري على وثائق سلة المهملات فقط",
+  "Invalid document cursor": "مؤشر متابعة قائمة الوثائق غير صالح.",
   "Only storage keys the inventory lists as orphaned can be purged": "لا يُنظَّف إلا المفاتيح التي يعدّدها الجرد كيتيمة",
   "Only unreferenced files that the inventory lists can be purged": "لا يُنظَّف إلا الملفات التي يعدّدها الجرد بلا مرجع",
   "Parent folder not found": "لم يُعثر على المجلد الأب",

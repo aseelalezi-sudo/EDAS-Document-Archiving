@@ -32,7 +32,7 @@ const mocks = vi.hoisted(() => ({
     folderAcls: vi.fn(),
     folderAcl: vi.fn(),
     putFolderAcl: vi.fn(),
-    listDocuments: vi.fn(),
+    listDocumentWindow: vi.fn(),
     trashDocuments: vi.fn(),
     trashIds: vi.fn(),
     purgeTrash: vi.fn(),
@@ -520,8 +520,10 @@ beforeEach(() => {
   mocks.docs.folderAcls.mockResolvedValue([aclRuleDto()]);
   mocks.docs.folderAcl.mockResolvedValue([aclRuleDto()]);
   mocks.docs.putFolderAcl.mockResolvedValue([aclRuleDto()]);
-  mocks.docs.listDocuments.mockImplementation((query: { page?: number } = {}) =>
-    (query.page ?? 1) === 1 ? page([docDto()], 2, 1) : page([docDto({ id: "doc-api-2", docNo: "EDAS-2026002", title: "عقد ثانٍ" })], 2, 2),
+  mocks.docs.listDocumentWindow.mockImplementation(async (after: string) =>
+    after === "start"
+      ? { items: [docDto()], meta: { total: 2, nextCursor: "second-page" } }
+      : { items: [docDto({ id: "doc-api-2", docNo: "EDAS-2026002", title: "عقد ثانٍ" })], meta: { nextCursor: null } },
   );
   mocks.docs.trashIds.mockResolvedValue(["doc-api-1"]);
   mocks.docs.trashDocuments.mockImplementation(() => page([trashDto()], 1));
@@ -716,7 +718,7 @@ describe("documents store actions over the API", () => {
     expect(mocks.docs.createDocument).toHaveBeenCalledWith(
       expect.objectContaining({ title: "وثيقة جديدة", classification: "PUBLIC", fileId: "file-new", folderId: "f-api" }),
     );
-    expect(mocks.docs.listDocuments.mock.calls.length).toBeGreaterThan(1);
+    expect(mocks.docs.listDocumentWindow.mock.calls.length).toBeGreaterThan(1);
   });
 
   it("surfaces an upload rejection with the server reason", async () => {
@@ -1201,24 +1203,27 @@ describe("documents store actions over the API", () => {
     expect(mocks.domain.putSetting).toHaveBeenCalledTimes(1);
   });
 
-  it("loads the next page of documents and reports a failed page", async () => {
+  it("retries a failed cursor and preserves the first page total when loading more", async () => {
     const { result } = await booted();
+    mocks.docs.listDocumentWindow.mockRejectedValueOnce(new Error("page down"));
+    await act(async () => {
+      await result.current.docs.loadMoreDocuments();
+    });
+    expect(result.current.docs.docsLoadingMore).toBe(false);
+    expect(result.current.app.toasts.map((toast) => toast.title)).toContain(API_ERROR_TITLE);
+    expect(result.current.docs.docsMeta).toEqual({ loaded: 1, total: 2 });
 
     await act(async () => {
       await result.current.docs.loadMoreDocuments();
     });
     expect(result.current.docs.docs).toHaveLength(2);
     expect(result.current.docs.docsMeta).toEqual({ loaded: 2, total: 2 });
-    expect(mocks.docs.listDocuments).toHaveBeenCalledWith({ page: 2, pageSize: 100 });
-
-    mocks.docs.listDocuments.mockImplementation((query: { page?: number } = {}) =>
-      (query.page ?? 1) === 1 ? page([docDto()], 2, 1) : Promise.reject(new Error("page down")),
-    );
+    expect(mocks.docs.listDocumentWindow).toHaveBeenCalledWith("second-page", 100);
+    const calls = mocks.docs.listDocumentWindow.mock.calls.length;
     await act(async () => {
       await result.current.docs.loadMoreDocuments();
     });
-    expect(result.current.docs.docsLoadingMore).toBe(false);
-    expect(result.current.app.toasts.map((toast) => toast.title)).toContain(API_ERROR_TITLE);
+    expect(mocks.docs.listDocumentWindow).toHaveBeenCalledTimes(calls);
   });
 
   it("sends a document for approval and reports a failed submission", async () => {

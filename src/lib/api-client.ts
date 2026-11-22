@@ -4,6 +4,7 @@ import type {
   DocumentDetailDto,
   DocumentDto,
   DocumentPermissionsDto,
+  DocumentWindow,
   FileDto,
   FilePreviewDto,
   FolderDto,
@@ -140,6 +141,8 @@ export function createApiClient() {
     foldersTree: () => authed<{ items: FolderDto[] }>("/folders/tree"),
     listDocuments: (params: ListDocumentsParams = {}) =>
       authed<Paginated<DocumentDto>>("/documents", { query: params as unknown as Record<string, string | number | boolean | undefined> }),
+    listDocumentWindow: (after: string, pageSize: number) =>
+      authed<DocumentWindow<DocumentDto>>("/documents", { query: { after, pageSize } }),
     getDocument: (id: string) => authed<DocumentDetailDto>(`/documents/${id}`),
     documentPermissions: (id: string) => authed<DocumentPermissionsDto>(`/documents/${id}/permissions`),
     createDocument: (body: Record<string, unknown>) => authed<DocumentDto>("/documents", { method: "POST", body }),
