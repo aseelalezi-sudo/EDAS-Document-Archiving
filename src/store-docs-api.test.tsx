@@ -837,6 +837,17 @@ describe("documents store actions over the API", () => {
     expect(result.current.app.toasts.map((toast) => toast.title)).toContain(API_ERROR_TITLE);
   });
 
+  it("warns about partial storage cleanup after a committed purge or disposal", async () => {
+    const { result } = await booted();
+    mocks.docs.purgeDocument.mockResolvedValueOnce({ deleted: true, purged: true, storageErrors: 1 });
+    mocks.domain.executeRetention.mockResolvedValueOnce({ certificate: { storageErrors: 2 } });
+    await act(async () => {
+      expect(await result.current.docs.purgeDocs(["doc-api-1"])).toBe(false);
+      expect(await result.current.docs.removeRetention("ret-1", { action: "DESTROY" })).toBe(false);
+    });
+    expect(result.current.app.toasts.filter((entry) => entry.type === "warning")).toHaveLength(2);
+  });
+
   it("restores, purges and empties the trash", async () => {
     const { result } = await booted();
 

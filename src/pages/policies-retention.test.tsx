@@ -307,7 +307,7 @@ describe("retention queue", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "إتلاف نهائي" }));
 
     await waitFor(() => expect(store.removeRetention).toHaveBeenCalledWith("ret-1", { action: "DESTROY" }));
-    expect(app.toast).toHaveBeenCalledWith({ type: "success", title: "تم الإتلاف الآمن", message: "عقد التوريد" });
+    expect(app.toast).toHaveBeenCalledWith({ type: "success", title: "نُفّذ إجراء الاحتفاظ", message: "عقد التوريد" });
     expect(await screen.findByRole("dialog", { name: "شهادة إتلاف رسمية" })).toBeInTheDocument();
     expect(screen.getByText(/DES-RET-1-2026/)).toBeInTheDocument();
   });

@@ -171,6 +171,7 @@ describe("RetentionService disposal", () => {
       totalBytes: 12288,
       policy: { name: "إتلاف بعد خمس سنوات", legalBasis: "نظام الوثائق والسجلات" },
     });
+    expect(result.certificate?.storageCleanup).toBe("accepted");
     expect(result.certificate?.files.map((file) => file.checksumSha256)).toEqual(["aaa111", "bbb222"]);
   });
 
@@ -213,6 +214,7 @@ describe("RetentionService disposal", () => {
       where: { entityType: "Document", entityId: "doc-1", action: "retention.destroy", detail: { path: ["retentionItemId"], equals: "item-1" } },
       orderBy: { seq: "desc" },
     });
+    expect(certificate.storageCleanup).toBe("unverified");
     expect(certificate.retentionItemId).toBe("item-1");
     expect(certificate.certificateRef).toBe("DES-0F1E2D3C-2026");
     expect(certificate.files).toHaveLength(1);
@@ -481,7 +483,7 @@ describe("RetentionService execution edges", () => {
         detail: expect.objectContaining({ storageErrors: 1, storageKeys: ["documents/2025/own.pdf"] }),
       }),
     );
-    expect(result.certificate).toMatchObject({ storageErrors: 1, fileCount: 1 });
+    expect(result.certificate).toMatchObject({ storageErrors: 1, fileCount: 1, storageCleanup: "failed" });
   });
 
   it("destroys a document that never stored a version", async () => {

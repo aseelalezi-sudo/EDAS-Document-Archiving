@@ -291,6 +291,7 @@ export interface DestroyedFileDto {
 }
 
 export interface DestructionCertificateDto {
+  storageCleanup?: "pending" | "accepted" | "failed" | "unverified" | "not_required";
   certificateRef: string;
   auditEventId: string;
   auditHash: string | null;

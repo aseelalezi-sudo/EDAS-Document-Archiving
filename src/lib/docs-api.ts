@@ -94,7 +94,8 @@ export const docsApi = {
   updateDocument: (id: string, body: DocumentUpdateBody) => client.patch<DocumentDto>(`/documents/${id}`, body),
   deleteDocument: (id: string) => client.del<{ id: string; deleted: boolean }>(`/documents/${id}`),
   restoreDocument: (id: string) => client.post<DocumentDto>(`/documents/${id}/restore`, {}),
-  purgeDocument: (id: string) => client.del<{ id: string; deleted: boolean; purged?: boolean }>(`/documents/${id}/purge`),
+  purgeDocument: (id: string) =>
+    client.del<{ id: string; deleted: boolean; purged?: boolean; storageErrors?: number }>(`/documents/${id}/purge`),
   addVersion: (id: string, body: { fileId: string; comment?: string }) =>
     client.post<{ documentId: string; version: number; fileId: string; isCurrent: boolean }>(`/documents/${id}/versions`, body),
   restoreVersion: (id: string, versionId: string) => client.post<DocumentDetailDto>(`/documents/${id}/versions/${versionId}/restore`, {}),

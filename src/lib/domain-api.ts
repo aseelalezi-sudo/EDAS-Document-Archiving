@@ -90,10 +90,11 @@ export const domainApi = {
   scheduleRetention: (documentId: string, policyId: string) => client.post<RetentionItemDto>("/retention/items", { documentId, policyId }),
   extendRetention: (id: string, dueAt: string) => client.patch<RetentionItemDto>(`/retention/items/${id}`, { dueAt }),
   executeRetention: (id: string, action?: RetentionActionDto) =>
-    client.post<{ item: RetentionItemDto; document: Pick<DocumentDto, "id" | "docNo" | "title" | "status" | "retentionEnd"> }>(
-      `/retention/items/${id}/execute`,
-      action ? { action } : {},
-    ),
+    client.post<{
+      item: RetentionItemDto;
+      certificate?: DestructionCertificateDto | null;
+      document: Pick<DocumentDto, "id" | "docNo" | "title" | "status" | "retentionEnd">;
+    }>(`/retention/items/${id}/execute`, action ? { action } : {}),
   retentionCertificate: (id: string) => client.get<DestructionCertificateDto>(`/retention/items/${id}/certificate`),
   holds: () => client.get<Paginated<LegalHoldDto>>("/legal-holds", { query: { pageSize: 100 } }),
   createHold: (body: { caseNo: string; reason: string; documentIds?: string[] }) => client.post<LegalHoldDto>("/legal-holds", body),
