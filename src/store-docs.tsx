@@ -173,7 +173,8 @@ interface DocsState {
   deleteDocs: (ids: string[], onResult?: (ok: boolean, done: number) => void) => void;
   restoreDocs: (ids: string[]) => Promise<boolean>;
   purgeDocs: (ids: string[]) => Promise<boolean>;
-  emptyTrash: () => Promise<boolean>;
+  trashSnapshot: () => Promise<string[]>;
+  emptyTrash: (snapshot?: string[]) => Promise<boolean>;
   removeTask: (id: string) => Promise<boolean>;
   rejectTask: (id: string, comment: string) => Promise<boolean>;
   addFolder: (folder: FolderNode) => Promise<boolean>;
@@ -1163,17 +1164,47 @@ function DocumentStore({ children }: { children: ReactNode }) {
     return count === 0;
   };
 
-  const purgeStoredDocuments = async (ids: string[]) => {
-    const results = await Promise.all(ids.map((id) => docsApi.purgeDocument(id)));
+  const purgeStoredDocuments = async (ids: string[], bulk: boolean) => {
+    let failed = 0;
+    let storageErrors = 0;
+    if (bulk) {
+      for (let offset = 0; offset < ids.length; offset += 25) {
+        const batch = ids.slice(offset, offset + 25);
+        try {
+          const result = await docsApi.purgeTrash(batch);
+          failed += result.failed;
+          storageErrors += result.storageErrors;
+        } catch {
+          failed += batch.length;
+        }
+      }
+    } else {
+      const results = await Promise.allSettled(ids.map((id) => docsApi.purgeDocument(id)));
+      for (const result of results) {
+        if (result.status === "rejected") failed++;
+        else storageErrors += result.value.storageErrors ?? 0;
+      }
+    }
     await refetchDocuments();
-    return reportStorageErrors(results.reduce((sum, item) => sum + (item?.storageErrors ?? 0), 0));
+    const storageOk = reportStorageErrors(storageErrors);
+    if (failed) {
+      toast({
+        type: "warning",
+        title: lang === "en" ? "Purge requests with incomplete results" : "طلبات حذف تحتاج إلى مراجعة",
+        message:
+          lang === "en"
+            ? `Confirmed: ${ids.length - failed}. Unconfirmed: ${failed}.`
+            : `تأكد حذف ${ids.length - failed}، وتعذّر تأكيد حذف ${failed}.`,
+      });
+    }
+    return failed === 0 && storageOk;
   };
 
   const purgeDocs = async (ids: string[]): Promise<boolean> => {
     setTrash((prev) => prev.filter((x) => !ids.includes(x.doc.id)));
     if (apiMode) {
       try {
-        if (!(await purgeStoredDocuments(ids))) return false;
+        if (!(await purgeStoredDocuments(ids, false))) return false;
       } catch (error) {
         recoverDocuments(error);
         return false;
@@ -1188,16 +1219,19 @@ function DocumentStore({ children }: { children: ReactNode }) {
     return true;
   };
 
-  const emptyTrash = async (): Promise<boolean> => {
-    const ids = trash.map((x) => x.doc.id);
-    setTrash([]);
-    if (apiMode && ids.length > 0) {
+  const trashSnapshot = async () => (apiMode ? docsApi.trashIds() : trash.map((item) => item.doc.id));
+
+  const emptyTrash = async (snapshot?: string[]): Promise<boolean> => {
+    if (apiMode) {
       try {
-        if (!(await purgeStoredDocuments(ids))) return false;
+        if (!(await purgeStoredDocuments(snapshot ?? (await trashSnapshot()), true))) return false;
       } catch (error) {
         recoverDocuments(error);
         return false;
       }
+    } else {
+      const ids = new Set(snapshot ?? trash.map((item) => item.doc.id));
+      setTrash((items) => items.filter((item) => !ids.has(item.doc.id)));
     }
     logAction(
       lang === "en" ? "Empty trash (secure)" : "إفراغ السلة (آمن)",
@@ -1905,6 +1939,7 @@ function DocumentStore({ children }: { children: ReactNode }) {
         deleteDocs,
         restoreDocs,
         purgeDocs,
+        trashSnapshot,
         emptyTrash,
         removeTask,
         rejectTask,

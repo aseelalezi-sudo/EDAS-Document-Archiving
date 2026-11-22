@@ -70,7 +70,7 @@ describe("trash page", () => {
     render(<Trash />, { wrapper });
 
     fireEvent.click(screen.getByRole("button", { name: /إفراغ السلة/ }));
-    expect(screen.getByText(/سيتم حذف جميع العناصر نهائياً/)).toBeInTheDocument();
+    expect(await screen.findByText(/سيتم طلب حذف/)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "إفراغ نهائي" }));
 
@@ -109,7 +109,7 @@ describe("trash page", () => {
     expect(screen.getByRole("columnheader", { name: "Purge date" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Empty trash" }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Empty permanently" }));
+    fireEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Empty permanently" }));
 
     expect(await screen.findByText("Trash is empty")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Back to library" }));

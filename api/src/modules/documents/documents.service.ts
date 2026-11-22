@@ -88,6 +88,31 @@ export class DocumentsService {
     return this.paginate(where, page, pageSize, departmentId ?? actor.departmentId);
   }
 
+  async trashIds(principal: Principal) {
+    const { actor, departmentId } = await this.access.listScope(principal);
+    if (actor.role !== "SYSTEM_ADMIN") throw new ForbiddenException("Only system administrators can purge documents");
+    const visibility = await this.access.documentVisibilityFilter(actor);
+    const where = this.scopeWhere(departmentId, {}, visibility);
+    const rows = await this.prisma.document.findMany({ where: { ...where, deletedAt: { not: null } }, select: { id: true } });
+    return rows.map((row) => row.id);
+  }
+
+  async purgeTrash(principal: Principal, ids: string[]) {
+    const actor = await this.access.resolveActor(principal);
+    if (actor.role !== "SYSTEM_ADMIN") throw new ForbiddenException("Only system administrators can purge documents");
+
+    let failed = 0;
+    let storageErrors = 0;
+    for (let offset = 0; offset < ids.length; offset += 5) {
+      const results = await Promise.allSettled(ids.slice(offset, offset + 5).map((id) => this.purge(principal, id)));
+      for (const result of results) {
+        if (result.status === "rejected") failed++;
+        else storageErrors += result.value.storageErrors;
+      }
+    }
+    return { failed, storageErrors };
+  }
+
   async get(principal: Principal, id: string) {
     const document = await this.mustFind(id);
     await this.authorize(principal, AclAction.VIEW, document);

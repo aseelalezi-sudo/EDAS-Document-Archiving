@@ -11,9 +11,10 @@ type TrashRow = TrashItem & { id: string };
 export function Trash() {
   const { t, lang, toast } = useApp();
   const navigate = useNavigate();
+  const [busy, setBusy] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [confirm, setConfirm] = useState<{ ids: string[]; empty: boolean } | null>(null);
-  const { trash, docsReady, restoreDocs, purgeDocs, emptyTrash } = useDocsStore();
+  const { trash, docsReady, restoreDocs, purgeDocs, trashSnapshot, emptyTrash } = useDocsStore();
   const rows: TrashRow[] = trash.map((item) => ({ ...item, id: item.doc.id }));
 
   const restore = async (ids: string[]) => {
@@ -31,10 +32,16 @@ export function Trash() {
   const purge = async (ids: string[], empty: boolean) => {
     setSelected([]);
     setConfirm(null);
-    const ok = empty ? await emptyTrash() : await purgeDocs(ids);
+    setBusy(true);
+    let ok;
+    try {
+      ok = empty ? await emptyTrash(ids) : await purgeDocs(ids);
+    } finally {
+      setBusy(false);
+    }
     if (ok) {
       toast({
-        type: "error",
+        type: "success",
         title: empty ? (lang === "en" ? "Trash emptied" : "تم إفراغ السلة") : t("common.permanentDelete"),
         message: `${ids.length} ${lang === "en" ? "item(s)" : "عنصر"}`,
       });
@@ -52,8 +59,18 @@ export function Trash() {
             size="sm"
             variant="danger"
             icon={<Trash2 className="h-4 w-4" />}
-            disabled={trash.length === 0}
-            onClick={() => setConfirm({ ids: trash.map((x) => x.doc.id), empty: true })}
+            disabled={busy || trash.length === 0}
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const ids = await trashSnapshot();
+                if (ids.length) setConfirm({ ids, empty: true });
+              } catch {
+                toast({ type: "error", title: t("err.api") });
+              } finally {
+                setBusy(false);
+              }
+            }}
           >
             {lang === "en" ? "Empty trash" : "إفراغ السلة"}
           </Button>
@@ -178,8 +195,8 @@ export function Trash() {
         message={
           confirm?.empty
             ? lang === "en"
-              ? "All items will be permanently and securely deleted. This cannot be undone."
-              : "سيتم حذف جميع العناصر نهائياً بشكل آمن وغير قابل للاستعادة. لا يمكن التراجع عن هذا الإجراء."
+              ? `Request permanent deletion of ${confirm.ids.length} items? Documents under legal hold will be kept.`
+              : `سيتم طلب حذف ${confirm.ids.length} عنصرًا نهائيًا. ستبقى الوثائق الخاضعة للحجز القانوني.`
             : lang === "en"
               ? `Permanently delete ${confirm?.ids.length ?? 0} item(s)? This cannot be undone.`
               : `هل تريد حذف ${confirm?.ids.length ?? 0} عنصر نهائياً؟ لا يمكن التراجع عن هذا الإجراء.`

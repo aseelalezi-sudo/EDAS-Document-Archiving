@@ -41,18 +41,24 @@ export class RolesService {
     if (actions.some((action) => !ACL_ACTIONS.includes(action))) throw new BadRequestException("Unknown permission");
 
     const actor = await this.access.resolveActor(principal);
-    const policy = await this.prisma.rolePolicy.upsert({
-      where: { role: role as UserRole },
-      create: { role: role as UserRole, actions, updatedById: actor.id || null },
-      update: { actions, updatedById: actor.id || null },
-    });
-    await this.audit.record({
-      action: "role.update",
-      entityType: "RolePolicy",
-      entityId: role,
-      actorId: actor.id || null,
-      departmentId: actor.departmentId,
-      detail: { actions },
+    const policy = await this.prisma.$transaction(async (tx) => {
+      const policy = await tx.rolePolicy.upsert({
+        where: { role: role as UserRole },
+        create: { role: role as UserRole, actions, updatedById: actor.id || null },
+        update: { actions, updatedById: actor.id || null },
+      });
+      await this.audit.record(
+        {
+          action: "role.update",
+          entityType: "RolePolicy",
+          entityId: role,
+          actorId: actor.id || null,
+          departmentId: actor.departmentId,
+          detail: { actions },
+        },
+        tx,
+      );
+      return policy;
     });
     const users = await this.prisma.user.count({ where: { role: role as UserRole } });
     return {
@@ -67,14 +73,19 @@ export class RolesService {
   async reset(principal: Principal, role: string): Promise<RolePolicyDto> {
     if (!isUserRole(role)) throw new NotFoundException("Unknown role");
     const actor = await this.access.resolveActor(principal);
-    await this.prisma.rolePolicy.deleteMany({ where: { role: role as UserRole } });
-    await this.audit.record({
-      action: "role.reset",
-      entityType: "RolePolicy",
-      entityId: role,
-      actorId: actor.id || null,
-      departmentId: actor.departmentId,
-      detail: { actions: [...ROLE_CAPABILITIES[role]] },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.rolePolicy.deleteMany({ where: { role: role as UserRole } });
+      await this.audit.record(
+        {
+          action: "role.reset",
+          entityType: "RolePolicy",
+          entityId: role,
+          actorId: actor.id || null,
+          departmentId: actor.departmentId,
+          detail: { actions: [...ROLE_CAPABILITIES[role]] },
+        },
+        tx,
+      );
     });
     const users = await this.prisma.user.count({ where: { role: role as UserRole } });
     return {

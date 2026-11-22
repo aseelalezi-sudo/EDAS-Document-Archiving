@@ -7,6 +7,8 @@ const PRINCIPAL = { sub: "user-1", role: "EMPLOYEE" };
 function build() {
   const documents = {
     list: vi.fn().mockResolvedValue({ items: [] }),
+    trashIds: vi.fn().mockResolvedValue(["doc-1"]),
+    purgeTrash: vi.fn().mockResolvedValue({ failed: 0, storageErrors: 0 }),
     trash: vi.fn().mockResolvedValue({ items: [] }),
     get: vi.fn().mockResolvedValue({ id: "doc-1" }),
     permissions: vi.fn().mockResolvedValue({ canEdit: true }),
@@ -35,6 +37,9 @@ describe("DocumentsController delegation", () => {
     await expect(controller.trash(PRINCIPAL as never, query)).resolves.toEqual({ items: [] });
     expect(documents.list).toHaveBeenCalledWith(PRINCIPAL, query);
     expect(documents.trash).toHaveBeenCalledWith(PRINCIPAL, query);
+    await expect(controller.trashIds(PRINCIPAL as never)).resolves.toEqual(["doc-1"]);
+    await controller.purgeTrash(PRINCIPAL as never, { ids: ["doc-1"] });
+    expect(documents.purgeTrash).toHaveBeenCalledWith(PRINCIPAL, ["doc-1"]);
   });
 
   it("forwards the document id for reads, permissions and updates", async () => {

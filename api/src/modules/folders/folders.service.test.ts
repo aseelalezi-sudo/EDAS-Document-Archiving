@@ -9,7 +9,7 @@ function buildService(
   global = false,
   scopeDepartment: string | null | undefined = null,
 ) {
-  const prisma = {
+  const db = {
     folder: {
       findMany: vi.fn().mockResolvedValue([{ id: "folder-1" }, { id: "folder-2" }]),
       findUnique: vi.fn().mockResolvedValue({ id: "folder-1", path: "/parent/", departmentId: "dept-1" }),
@@ -22,8 +22,8 @@ function buildService(
       createMany: vi.fn().mockResolvedValue({ count: 1 }),
       deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
-    $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
   };
+  const prisma = { ...db, $transaction: vi.fn(async (run: (tx: typeof db) => Promise<unknown>) => run(db)) };
   const access = {
     assert: vi.fn().mockResolvedValue(actor),
     isGlobal: vi.fn().mockReturnValue(global),
@@ -120,6 +120,7 @@ describe("FoldersService.create", () => {
         departmentId: "dept-1",
         detail: { name: "عقود", parentId: undefined },
       }),
+      expect.objectContaining({folder: prisma.folder}),
     );
   });
 
@@ -199,6 +200,7 @@ describe("FoldersService.update", () => {
         departmentId: "dept-1",
         detail: { name: "عقود 2026", scope: "PROJECT", aclInherit: false },
       }),
+      expect.objectContaining({folder: prisma.folder}),
     );
   });
 
@@ -225,7 +227,7 @@ describe("FoldersService.remove", () => {
       entityType: "Folder",
       entityId: "folder-1",
       actorId: "user-1",
-    });
+    }, expect.objectContaining({folder: prisma.folder}));
   });
 
   it("refuses a folder that still holds children or documents", async () => {
@@ -295,6 +297,7 @@ describe("FoldersService.putAcl", () => {
         actorId: "user-1",
         detail: { rules: 2, effect: ["USER:user-2:ALLOW", "DEPARTMENT:dept-2:DENY"] },
       }),
+      expect.objectContaining({folder: prisma.folder}),
     );
   });
 

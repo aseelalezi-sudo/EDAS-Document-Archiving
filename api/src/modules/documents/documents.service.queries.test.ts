@@ -853,3 +853,39 @@ describe("DocumentsService signatures and records", () => {
     await expect(service.declareRecord(PRINCIPAL, "doc-1")).rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+describe("DocumentsService bulk trash", () => {
+  it("takes an unpaginated snapshot of visible trashed document IDs", async () => {
+    const { service, prisma, access } = buildService();
+    const visibility = { folderId: "folder-1" };
+    access.documentVisibilityFilter.mockResolvedValue(visibility);
+    access.listScope.mockResolvedValue({ actor: { role: "SYSTEM_ADMIN" } });
+    const rows = Array.from({ length: 2003 }, (_, index) => ({ id: "doc-" + index }));
+    prisma.document.findMany.mockResolvedValue(rows);
+
+    await expect(service.trashIds(PRINCIPAL)).resolves.toEqual(rows.map(({ id }) => id));
+    expect(prisma.document.findMany).toHaveBeenCalledWith({
+      where: { AND: [visibility], deletedAt: { not: null } },
+      select: { id: true },
+    });
+  });
+
+  it("requires a system administrator to list or purge in bulk", async () => {
+    const { service, prisma } = buildService();
+    await expect(service.trashIds(PRINCIPAL)).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(service.purgeTrash(PRINCIPAL, ["doc-1"])).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.document.findMany).not.toHaveBeenCalled();
+  });
+
+  it("continues past failures and counts storage cleanup errors", async () => {
+    const { service, access } = buildService();
+    access.resolveActor.mockResolvedValue({ role: "SYSTEM_ADMIN" });
+    const purge = vi.spyOn(service, "purge").mockImplementation(async (_principal, id) => {
+      if (id === "held") throw new ConflictException("Legal hold");
+      return { id, deleted: true, purged: true, storageErrors: id === "storage-error" ? 1 : 0 };
+    });
+    const ids = ["held", "doc-1", "doc-2", "doc-3", "doc-4", "storage-error"];
+    await expect(service.purgeTrash(PRINCIPAL, ids)).resolves.toEqual({ failed: 1, storageErrors: 1 });
+    expect(purge.mock.calls.map(([, id]) => id)).toEqual(ids);
+  });
+});

@@ -1,3 +1,4 @@
+import { DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
@@ -1060,6 +1061,49 @@ describe("FilesService checksum verification", () => {
 });
 
 describe("FilesService integrity inventory", () => {
+  it("accepts disposed documents without versions and detects inconsistent pointers", async () => {
+    const { service, prisma } = buildService({ id: "user-9", departmentId: null, role: "SYSTEM_ADMIN" });
+    const database = new DatabaseSync(":memory:");
+    try {
+      database.exec(`
+        CREATE TABLE "Document" (id TEXT PRIMARY KEY, "docNo" TEXT, "currentVersion" INTEGER, status TEXT);
+        CREATE TABLE "DocumentVersion" (id TEXT PRIMARY KEY, "documentId" TEXT, version INTEGER, "isCurrent" INTEGER);
+        INSERT INTO "Document" VALUES
+          ('disposed-clean', '01', 2, 'DISPOSED'),
+          ('disposed-with-version', '02', 2, 'DISPOSED'),
+          ('active-clean', '03', 1, 'APPROVED'),
+          ('active-without-version', '04', 1, 'APPROVED'),
+          ('active-wrong-pointer', '05', 2, 'APPROVED'),
+          ('active-duplicate-flags', '06', 2, 'APPROVED'),
+          ('active-restored-version', '07', 1, 'APPROVED');
+        INSERT INTO "DocumentVersion" VALUES
+          ('v1', 'disposed-with-version', 2, 1),
+          ('v2', 'active-clean', 1, 1),
+          ('v3', 'active-wrong-pointer', 1, 1),
+          ('v4', 'active-wrong-pointer', 2, 0),
+          ('v5', 'active-duplicate-flags', 1, 1),
+          ('v6', 'active-duplicate-flags', 2, 1),
+          ('v7', 'active-restored-version', 1, 1),
+          ('v8', 'active-restored-version', 2, 0);
+      `);
+      prisma.$queryRaw.mockImplementation(async (strings: TemplateStringsArray, limit: number) => {
+        // The query only needs PostgreSQL-style casts removed to run against the fixture.
+        return database.prepare(strings.join("?").replace(/::(?:text|int)\b/g, "")).all(limit);
+      });
+
+      const report = await service.integrity({ sub: "user-9" } as never);
+      expect(report.versions.mismatches.map(({ id }) => id)).toEqual([
+        "disposed-with-version",
+        "active-without-version",
+        "active-wrong-pointer",
+        "active-duplicate-flags",
+      ]);
+      expect(report.versions.mismatchCount).toBe(4);
+    } finally {
+      database.close();
+    }
+  });
+
   it("separates rows without objects, objects without rows and files nothing points at", async () => {
     const attached = fileObject({ id: "file-attached", storageKey: "documents/2026/attached.pdf", versions: [{ documentId: "doc-1" }] });
     const lostObject = fileObject({ id: "file-lost", storageKey: "documents/2026/lost.pdf", versions: [{ documentId: "doc-2" }] });
