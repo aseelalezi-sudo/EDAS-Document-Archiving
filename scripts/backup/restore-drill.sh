@@ -83,6 +83,20 @@ wait_for "$KEYCLOAK_ISSUER/.well-known/openid-configuration"
 npm --prefix api run prisma:deploy
 start_api
 node scripts/backup/restore-fixture.mjs create "$work/fixture.json"
+if [[ "${1:-}" == benchmark ]]; then
+  phase=benchmark
+  : "${LOAD_DOCUMENTS:=1000000}"
+  : "${LOAD_REPORT:=edas-load-result.json}"
+  [[ "$LOAD_DOCUMENTS" =~ ^[1-9][0-9]{0,6}$ ]]
+  node scripts/backup/restore-fixture.mjs employee
+  node scripts/backup/restore-fixture.mjs create "$work/load-file.json"
+  fixture_id="$(node -p 'JSON.parse(require("node:fs").readFileSync(process.argv[1])).fileId' "$work/fixture.json")"
+  compose "$source_project" exec -T postgres psql --username edas --dbname edas \
+    --set="documents=$LOAD_DOCUMENTS" --set="file_id=$fixture_id" <scripts/performance/seed.sql
+  LOAD_API_PID="$api_pid" LOAD_DOCUMENTS="$LOAD_DOCUMENTS" LOAD_REPORT="$LOAD_REPORT" \
+    node scripts/backup/restore-fixture.mjs benchmark "$work/load-file.json"
+  exit
+fi
 stop_api
 
 phase=backup

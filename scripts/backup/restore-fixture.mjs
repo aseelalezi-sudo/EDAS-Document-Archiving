@@ -12,26 +12,25 @@ async function request(url, options) {
   return response;
 }
 
-const tokenResponse = await request(`${process.env.KEYCLOAK_ISSUER}/protocol/openid-connect/token`, {
-  method: "POST",
-  body: new URLSearchParams({
-    grant_type: "password",
-    client_id: "edas-cli",
-    username: process.env.KEYCLOAK_ADMIN,
-    password: process.env.KEYCLOAK_ADMIN_PASSWORD,
-    scope: "openid",
-  }),
-});
-const { access_token: token } = await tokenResponse.json();
-assert(token, "Keycloak must issue an access token");
-const auth = { Authorization: `Bearer ${token}` };
+async function login(username, password) {
+  const response = await request(`${process.env.KEYCLOAK_ISSUER}/protocol/openid-connect/token`, {
+    method: "POST",
+    body: new URLSearchParams({ grant_type: "password", client_id: "edas-cli", username, password, scope: "openid" }),
+  });
+  const { access_token: token } = await response.json();
+  assert(token, "Keycloak must issue an access token");
+  return { Authorization: `Bearer ${token}` };
+}
 
-async function api(route, body) {
+const auth =
+  mode === "employee" ? await login("employee", "employee") : await login(process.env.KEYCLOAK_ADMIN, process.env.KEYCLOAK_ADMIN_PASSWORD);
+
+async function api(route, body, headers = auth) {
   const response = await request(
     base + route,
     body
-      ? { method: "POST", headers: { ...auth, "Content-Type": "application/json" }, body: JSON.stringify(body) }
-      : { headers: auth },
+      ? { method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: JSON.stringify(body) }
+      : { headers },
   );
   return (await response.json()).data;
 }
@@ -41,9 +40,16 @@ function sha256(value) {
 }
 
 const account = await api("/auth/me");
-assert.equal(account.role, "SYSTEM_ADMIN", "The fixture must run with the provisioned EDAS administrator");
+assert.equal(account.role, mode === "employee" ? "EMPLOYEE" : "SYSTEM_ADMIN", "Unexpected role for the provisioned test account");
 
-if (mode === "create") {
+if (mode === "employee") {
+  console.log("Provisioned the scoped test employee");
+} else if (mode === "benchmark") {
+  const { runLoad } = await import("../performance/run.mjs");
+  const fixture = JSON.parse(await readFile(path, "utf8"));
+  const employee = await login("employee", "employee");
+  await runLoad({ api, request, base, auth, employee, fixture, sha256 });
+} else if (mode === "create") {
   const originalName = "restore-fixture.pdf";
   const mimeType = "application/pdf";
   const title = `Recovery fixture ${randomUUID()}`;
