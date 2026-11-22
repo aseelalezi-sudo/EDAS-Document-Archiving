@@ -1,0 +1,46 @@
+name: Document load benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      concurrency:
+        description: Concurrent workers
+        type: number
+        default: 12
+  pull_request:
+    paths:
+      - ".github/workflows/performance.yml"
+      - "scripts/performance/**"
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            api/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      - run: npm run shared:build
+      - run: npm ci --prefix api
+      - run: npm --prefix api run prisma:generate
+      - run: npm run api:build
+      - name: Benchmark one million documents
+        env:
+          LOAD_DOCUMENTS: "1000000"
+          LOAD_CONCURRENCY: ${{ inputs.concurrency || 12 }}
+          LOAD_REPORT: ${{ runner.temp }}/edas-load-result.json
+        run: bash scripts/backup/restore-drill.sh benchmark
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: edas-load-result
+          path: ${{ runner.temp }}/edas-load-result.json
