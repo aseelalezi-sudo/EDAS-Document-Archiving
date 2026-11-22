@@ -40,6 +40,9 @@ function sha256(value) {
   return createHash("sha256").update(value).digest("hex");
 }
 
+const account = await api("/auth/me");
+assert.equal(account.role, "SYSTEM_ADMIN", "The fixture must run with the provisioned EDAS administrator");
+
 if (mode === "create") {
   const originalName = "restore-fixture.pdf";
   const mimeType = "application/pdf";
@@ -58,11 +61,12 @@ if (mode === "create") {
   await request(url, { method: "PUT", headers: { "Content-Type": mimeType }, body: bytes });
   const file = await api("/files", { storageKey, originalName, mimeType, sizeBytes, checksumSha256 });
   const doc = await api("/documents", { title, fileId: file.id });
-  await writeFile(path, JSON.stringify({ id: doc.id, fileId: file.id, title, checksumSha256 }), { mode: 0o600 });
+  await writeFile(path, JSON.stringify({ id: doc.id, fileId: file.id, title, checksumSha256, accountId: account.id }), { mode: 0o600 });
   console.log("Uploaded and registered a test PDF through the source API");
 } else {
   assert.equal(mode, "check");
-  const { id, fileId, title, checksumSha256 } = JSON.parse(await readFile(path, "utf8"));
+  const { id, fileId, title, checksumSha256, accountId } = JSON.parse(await readFile(path, "utf8"));
+  assert.equal(account.id, accountId, "Restored account must keep its EDAS identity");
   const doc = await api(`/documents/${id}`);
   assert.equal(doc.title, title, "Restored PostgreSQL must contain the original document");
   const currentFile = doc.versions.find((version) => version.isCurrent)?.file;
