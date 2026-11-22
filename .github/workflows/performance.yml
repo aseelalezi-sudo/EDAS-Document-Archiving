@@ -7,6 +7,10 @@ on:
         description: Concurrent workers
         type: number
         default: 12
+      duration_minutes:
+        description: Sustained load in minutes (1 to 120)
+        type: number
+        default: 120
   pull_request:
     paths:
       - ".github/workflows/performance.yml"
@@ -18,7 +22,7 @@ permissions:
 jobs:
   benchmark:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,7 +42,14 @@ jobs:
           LOAD_DOCUMENTS: "1000000"
           LOAD_CONCURRENCY: ${{ inputs.concurrency || 12 }}
           LOAD_REPORT: ${{ runner.temp }}/edas-load-result.json
-        run: bash scripts/backup/restore-drill.sh benchmark
+          LOAD_DURATION_MINUTES: ${{ inputs.duration_minutes || 3 }}
+        run: |
+          if [[ ! "$LOAD_DURATION_MINUTES" =~ ^[1-9][0-9]{0,2}$ ]] || (( LOAD_DURATION_MINUTES > 120 )); then
+            echo "Duration must be a whole number from 1 to 120 minutes" >&2
+            exit 1
+          fi
+          export LOAD_DURATION_SECONDS=$((LOAD_DURATION_MINUTES * 60))
+          bash scripts/backup/restore-drill.sh benchmark
       - uses: actions/upload-artifact@v4
         if: always()
         with:
