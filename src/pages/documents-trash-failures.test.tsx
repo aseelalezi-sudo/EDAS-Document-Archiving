@@ -49,6 +49,7 @@ beforeEach(() => {
     docsReady: true,
     restoreDocs: vi.fn().mockResolvedValue(false),
     purgeDocs: vi.fn().mockResolvedValue(false),
+    trashSnapshot: vi.fn().mockResolvedValue(["doc-1", "doc-2", "doc-3"]),
     emptyTrash: vi.fn().mockResolvedValue(false),
   });
 });
@@ -94,9 +95,11 @@ describe("trash page failures", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /إفراغ السلة/ }));
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "إفراغ نهائي" }));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.getByText(/3 عنصرًا/)).toBeInTheDocument();
+    fireEvent.click(dialog.getByRole("button", { name: "إفراغ نهائي" }));
 
-    await vi.waitFor(() => expect(mocks.docs.mock.results[0].value.emptyTrash).toHaveBeenCalled());
+    await vi.waitFor(() => expect(mocks.docs.mock.results[0].value.emptyTrash).toHaveBeenCalledWith(["doc-1", "doc-2", "doc-3"]));
     expect(mocks.app.mock.results[0].value.toast).not.toHaveBeenCalled();
   });
 });
