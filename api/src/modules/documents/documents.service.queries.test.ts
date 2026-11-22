@@ -89,6 +89,7 @@ function buildService() {
   };
 
   const prisma = {
+    user: { findMany: vi.fn().mockResolvedValue([]) },
     document: {
       findMany: vi.fn().mockResolvedValue([listRow()]),
       count: vi.fn().mockResolvedValue(1),
@@ -227,8 +228,42 @@ describe("DocumentsService listing", () => {
       tags: { has: "مالية" },
     });
     expect(args.where.AND).toEqual([await access.documentVisibilityFilter()]);
-    expect(args.where.OR).toHaveLength(7);
+    expect(args.where.OR).toHaveLength(6);
+    expect(prisma.user.findMany).toHaveBeenCalledWith({
+      where: { OR: [{ name: { contains: "عقد", mode: "insensitive" } }, { nameEn: { contains: "عقد", mode: "insensitive" } }] },
+      select: { id: true },
+      take: 1001,
+    });
     expect(result.meta).toEqual({ page: 3, pageSize: 10, total: 1, departmentId: null });
+  });
+
+  it("matches a document by owner ID and keeps visibility filters in trash search", async () => {
+    const { service, prisma, access } = buildService();
+    prisma.user.findMany.mockResolvedValueOnce([{ id: "owner-match" }]);
+    await service.trash(PRINCIPAL, { q: "سارة" });
+    expect(prisma.document.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          AND: [await access.documentVisibilityFilter()],
+          deletedAt: { not: null },
+          OR: expect.arrayContaining([{ ownerId: { in: ["owner-match"] } }]),
+        }),
+      }),
+    );
+  });
+
+  it("uses the original owner relation for broad matches so every owner remains searchable", async () => {
+    const { service, prisma } = buildService();
+    prisma.user.findMany.mockResolvedValueOnce(Array.from({ length: 1001 }, (_, index) => ({ id: `owner-${index}` })));
+    await service.list(PRINCIPAL, { q: "اسم" });
+    const search = { contains: "اسم", mode: "insensitive" };
+    expect(prisma.document.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          OR: expect.arrayContaining([{ owner: { is: { OR: [{ name: search }, { nameEn: search }] } } }]),
+        }),
+      }),
+    );
   });
 
   it("ignores a blank free-text term", async () => {
@@ -238,6 +273,7 @@ describe("DocumentsService listing", () => {
 
     const args = prisma.document.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
     expect(args.where.OR).toBeUndefined();
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
   });
 
   it("returns a stable cursor and counts only the first window", async () => {
