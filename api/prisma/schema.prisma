@@ -383,6 +383,7 @@ model Document {
   @@index([status])
   @@index([deletedAt])
   @@index([checkedOutById])
+  @@index([ownerId])
 }
 
 model DocumentVersion {

@@ -36,6 +36,18 @@ export async function runLoad({ api, request, base, auth, employee, fixture, sha
   assert.deepEqual((await api(deepRoute)).items.map(({ id }) => id), expectedIds);
   const needle = encodeURIComponent("عبارة اختبار الأرشيف");
 
+  const ownerSearch = await api("/documents?q=Catalog%20Search%20Owner&pageSize=25", undefined, employee);
+  assert.equal(ownerSearch.meta.total, Math.floor((documents - 1) / 2048) + 1);
+  assert(ownerSearch.items.every((doc) => doc.ownerNameEn === "Catalog Search Owner"));
+
+  const tagSearch = await api("/documents?q=group-17&pageSize=25");
+  assert.equal(tagSearch.meta.total, Math.floor((documents - 17) / 50) + 1);
+  assert(tagSearch.items.every((doc) => doc.tags.includes("group-17")));
+
+  const phraseSearch = await api(`/documents?q=${needle}&pageSize=25`, undefined, employee);
+  assert(phraseSearch.meta.total > 0);
+  assert(phraseSearch.items.every((doc) => doc.description === "عبارة اختبار الأرشيف"));
+
   const operations = {
     adminList: async () => assert.equal((await api("/documents?after=start&pageSize=25")).items.length, 25),
     employeeList: async () => assert.equal((await api("/documents?after=start&pageSize=25", undefined, employee)).items.length, 25),
@@ -44,7 +56,11 @@ export async function runLoad({ api, request, base, auth, employee, fixture, sha
       assert.deepEqual(page.items.map(({ id }) => id), expectedIds);
       assert.equal(page.meta.total, undefined);
     },
-    searchArabic: async () => assert((await api(`/documents?q=${needle}`, undefined, employee)).meta.total > 0),
+    searchArabic: async () => {
+      const found = await api(`/documents?q=${needle}`, undefined, employee);
+      assert.equal(found.meta.total, phraseSearch.meta.total);
+      assert.deepEqual(found.items.map(({ id }) => id), phraseSearch.items.map(({ id }) => id));
+    },
     download: async () => {
       const { url } = await api(filePath + "/download");
       assert.equal(sha256(Buffer.from(await (await request(url)).arrayBuffer())), fixture.checksumSha256);

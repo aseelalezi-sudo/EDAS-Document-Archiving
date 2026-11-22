@@ -71,6 +71,7 @@ export class DocumentsService {
     const visibility = await this.access.documentVisibilityFilter(actor);
 
     const where = this.scopeWhere(departmentId, query, visibility);
+    await this.applySearch(where, query.q);
     where.deletedAt = null;
 
     if (query.after !== undefined) {
@@ -87,6 +88,7 @@ export class DocumentsService {
     const visibility = await this.access.documentVisibilityFilter(actor);
 
     const where = this.scopeWhere(departmentId, query, visibility);
+    await this.applySearch(where, query.q);
     where.deletedAt = { not: null };
 
     return this.paginate(where, page, pageSize, departmentId ?? actor.departmentId);
@@ -689,25 +691,34 @@ export class DocumentsService {
     if (query.projectId) where.projectId = query.projectId;
     if (query.category) where.category = query.category;
     if (query.tag) where.tags = { has: query.tag };
-    const term = query.q?.trim();
-    if (term) {
-      where.OR = [
-        { title: { contains: term, mode: "insensitive" } },
-        { titleEn: { contains: term, mode: "insensitive" } },
-        { docNo: { contains: term, mode: "insensitive" } },
-        { description: { contains: term, mode: "insensitive" } },
-        { category: { contains: term, mode: "insensitive" } },
-        { tags: { has: term } },
-        {
-          owner: {
-            is: {
-              OR: [{ name: { contains: term, mode: "insensitive" } }, { nameEn: { contains: term, mode: "insensitive" } }],
-            },
-          },
-        },
-      ];
-    }
     return where;
+  }
+
+  private async applySearch(where: Prisma.DocumentWhereInput, query: string | undefined) {
+    const term = query?.trim();
+    if (!term) return;
+
+    const text = { contains: term, mode: "insensitive" } as const;
+    const owner = { OR: [{ name: text }, { nameEn: text }] };
+    const maxOwnerMatches = 1_000;
+    const owners = await this.prisma.user.findMany({
+      where: owner,
+      select: { id: true },
+      take: maxOwnerMatches + 1,
+    });
+    where.OR = [
+      { title: text },
+      { titleEn: text },
+      { docNo: text },
+      { description: text },
+      { category: text },
+      { tags: { has: term } },
+    ];
+    if (owners.length > maxOwnerMatches) {
+      where.OR.push({ owner: { is: owner } });
+    } else if (owners.length) {
+      where.OR.push({ ownerId: { in: owners.map(({ id }) => id) } });
+    }
   }
 
   private async paginate(where: Prisma.DocumentWhereInput, page: number, pageSize: number, departmentId?: string | null) {
