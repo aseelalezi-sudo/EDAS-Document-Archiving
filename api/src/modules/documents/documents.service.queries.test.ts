@@ -240,6 +240,56 @@ describe("DocumentsService listing", () => {
     expect(args.where.OR).toBeUndefined();
   });
 
+  it("returns a stable cursor and counts only the first window", async () => {
+    const { service, prisma, access } = buildService();
+    const id = "00000000-0000-4000-8000-000000000003";
+    const createdAt = new Date("2026-01-01T08:00:00.000Z");
+    prisma.document.findMany
+      .mockResolvedValueOnce([listRow({ id }), listRow({ id: "lookahead" })])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([listRow({ id: "previous-date" })]);
+    prisma.document.count.mockResolvedValueOnce(2);
+
+    const first = await service.list(PRINCIPAL, { after: "start", pageSize: 1 });
+    const cursor = `${createdAt.toISOString()}/${id}`;
+    expect(first.meta).toMatchObject({ nextCursor: cursor, total: 2 });
+    expect(first.items.map((row) => row.id)).toEqual([id]);
+    const second = await service.list(PRINCIPAL, { after: cursor, pageSize: 1 });
+    expect(second.meta).toMatchObject({ nextCursor: null, total: undefined });
+    expect(second.items.map((row) => row.id)).toEqual(["previous-date"]);
+    expect(prisma.document.count).toHaveBeenCalledTimes(1);
+
+    const scope = { deletedAt: null, AND: [await access.documentVisibilityFilter()] };
+    expect(prisma.document.findMany).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        where: { AND: [scope, { createdAt, id: { lt: id } }] },
+        take: 2,
+      }),
+    );
+    expect(prisma.document.findMany).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ where: { AND: [scope, { createdAt: { lt: createdAt } }] }, take: 2 }),
+    );
+  });
+
+  it("stays within a shared timestamp when it can fill the entire window", async () => {
+    const { service, prisma } = buildService();
+    prisma.document.findMany.mockResolvedValueOnce([listRow(), listRow({ id: "lookahead" })]);
+    await service.list(PRINCIPAL, { after: "2026-01-01T08:00:00.000Z/00000000-0000-4000-8000-000000000003", pageSize: 1 });
+    expect(prisma.document.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.document.count).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid document cursor timestamps and shapes", async () => {
+    const { service, prisma } = buildService();
+    for (const after of ["bad", "2026-02-30T08:00:00.000Z/00000000-0000-4000-8000-000000000003", "2026-99-99T08:00:00.000Z/00000000-0000-4000-8000-000000000003"]) {
+      await expect(service.list(PRINCIPAL, { after })).rejects.toThrow("Invalid document cursor");
+    }
+    expect(prisma.document.findMany).not.toHaveBeenCalled();
+  });
+
   it("lists only trashed documents in the trash", async () => {
     const { service, prisma } = buildService();
 

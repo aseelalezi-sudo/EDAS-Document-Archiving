@@ -1,4 +1,4 @@
-import type { Paginated } from "@edas/shared";
+import type { DocumentWindow, Paginated } from "@edas/shared";
 
 export const PAGE_SIZE = 100;
 export const MAX_PAGES = 20;
@@ -29,4 +29,17 @@ export async function loadAllPages<T>(
     if (items.length >= total || result.items.length === 0) break;
   }
   return { items, total, truncated: items.length < total };
+}
+
+export async function loadDocumentWindows<T>(fetchWindow: (after: string) => Promise<DocumentWindow<T>>, maxPages: number) {
+  const items: T[] = [];
+  let total = 0;
+  let nextCursor: string | null = "start";
+  for (let page = 0; nextCursor && page < maxPages; page++) {
+    const result: DocumentWindow<T> = await fetchWindow(nextCursor);
+    total = result.meta.total ?? total;
+    items.push(...result.items);
+    nextCursor = result.meta.nextCursor;
+  }
+  return { items, total: nextCursor ? Math.max(total, items.length + 1) : items.length, nextCursor };
 }

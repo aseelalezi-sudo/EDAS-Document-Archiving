@@ -73,6 +73,10 @@ export class DocumentsService {
     const where = this.scopeWhere(departmentId, query, visibility);
     where.deletedAt = null;
 
+    if (query.after !== undefined) {
+      return this.paginateAfter(where, query.after, pageSize, departmentId ?? actor.departmentId);
+    }
+
     return this.paginate(where, page, pageSize, departmentId ?? actor.departmentId);
   }
 
@@ -722,6 +726,44 @@ export class DocumentsService {
       items: items.map((item) => this.toDto(item)),
       meta: { page, pageSize, total, departmentId: departmentId ?? null },
     };
+  }
+
+  private async paginateAfter(where: Prisma.DocumentWhereInput, after: string, pageSize: number, departmentId?: string | null) {
+    const take = pageSize + 1;
+    const find = (range: Prisma.DocumentWhereInput, limit: number) =>
+      this.prisma.document.findMany({
+        where: { AND: [where, range] },
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        take: limit,
+        select: LIST_SELECT,
+      });
+
+    const readWindow = async () => {
+      if (after === "start") return find({}, take);
+
+      const match = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z)\/([\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12})$/i.exec(after);
+      if (!match) throw new BadRequestException("Invalid document cursor");
+      const [, timestamp, id] = match;
+      const createdAt = new Date(timestamp);
+      if (!Number.isFinite(createdAt.getTime()) || createdAt.toISOString() !== timestamp) {
+        throw new BadRequestException("Invalid document cursor");
+      }
+
+      const sameTime = await find({ createdAt, id: { lt: id } }, take);
+      if (sameTime.length === take) return sameTime;
+      const earlier = await find({ createdAt: { lt: createdAt } }, take - sameTime.length);
+      return sameTime.concat(earlier);
+    };
+
+    const [window, total] = await Promise.all([
+      readWindow(),
+      after === "start" ? this.prisma.document.count({ where }) : undefined,
+    ]);
+    const items = window.slice(0, pageSize);
+    const last = items.at(-1);
+    const nextCursor = last && window.length === take ? `${last.createdAt.toISOString()}/${last.id}` : null;
+
+    return { items: items.map((item) => this.toDto(item)), meta: { pageSize, total, nextCursor, departmentId: departmentId ?? null } };
   }
 
   private async detail(id: string) {

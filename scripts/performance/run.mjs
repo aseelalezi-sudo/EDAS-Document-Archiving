@@ -19,20 +19,31 @@ export async function runLoad({ api, request, base, auth, employee, fixture, sha
   const previewPath = `/preview/files/${fixture.fileId}/content?kind=original`;
   const original = Buffer.from(await (await request(base + previewPath, { headers: auth })).arrayBuffer());
   assert.equal(sha256(original), fixture.checksumSha256);
-  const firstPage = await api("/documents?pageSize=25");
+  const firstPage = await api("/documents?after=start&pageSize=25");
   assert.equal(firstPage.meta.total, 2 + documents - Math.floor(documents / 100));
-  const scopedPage = await api("/documents?pageSize=25", undefined, employee);
+  const scopedPage = await api("/documents?after=start&pageSize=25", undefined, employee);
   assert(scopedPage.meta.total > 0 && scopedPage.meta.total < firstPage.meta.total);
   const deniedFolder = "20000000-0000-4000-8000-000000000033";
   const deniedPage = await api(`/documents?folderId=${deniedFolder}&pageSize=25`, undefined, employee);
   assert.equal(deniedPage.meta.total, 0, "Employee search must respect the ACL denial");
   const deepPage = Math.max(1, Math.floor(firstPage.meta.total * 0.9 / 25));
+  const anchorPage = deepPage > 1 ? await api(`/documents?page=${deepPage - 1}&pageSize=25`) : null;
+  const anchor = anchorPage?.items.at(-1);
+  const after = anchor ? encodeURIComponent(`${anchor.createdAt}/${anchor.id}`) : "start";
+  const deepRoute = `/documents?after=${after}&pageSize=25`;
+  const expectedDeep = await api(`/documents?page=${deepPage}&pageSize=25`);
+  const expectedIds = expectedDeep.items.map(({ id }) => id);
+  assert.deepEqual((await api(deepRoute)).items.map(({ id }) => id), expectedIds);
   const needle = encodeURIComponent("عبارة اختبار الأرشيف");
 
   const operations = {
-    adminList: async () => assert.equal((await api("/documents?pageSize=25")).items.length, 25),
-    employeeList: async () => assert.equal((await api("/documents?pageSize=25", undefined, employee)).items.length, 25),
-    deepPage: async () => assert.equal((await api(`/documents?page=${deepPage}&pageSize=25`)).items.length, 25),
+    adminList: async () => assert.equal((await api("/documents?after=start&pageSize=25")).items.length, 25),
+    employeeList: async () => assert.equal((await api("/documents?after=start&pageSize=25", undefined, employee)).items.length, 25),
+    deepPage: async () => {
+      const page = await api(deepRoute);
+      assert.deepEqual(page.items.map(({ id }) => id), expectedIds);
+      assert.equal(page.meta.total, undefined);
+    },
     searchArabic: async () => assert((await api(`/documents?q=${needle}`, undefined, employee)).meta.total > 0),
     download: async () => {
       const { url } = await api(filePath + "/download");

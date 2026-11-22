@@ -33,6 +33,11 @@ export interface Paginated<T> {
   meta: PageMeta;
 }
 
+export interface DocumentWindow<T> {
+  items: T[];
+  meta: { pageSize: number; total?: number; nextCursor: string | null };
+}
+
 export interface OidcConfigDto {
   issuer: string;
   clientId: string;

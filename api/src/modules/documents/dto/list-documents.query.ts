@@ -1,8 +1,13 @@
 import { Classification, DocumentStatus } from "@prisma/client";
 import { Type } from "class-transformer";
-import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, Min } from "class-validator";
+import { IsEnum, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from "class-validator";
 
 export class ListDocumentsQuery {
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  after?: string;
+
   @IsOptional()
   @IsString()
   q?: string;

@@ -26,7 +26,7 @@ import { ApiError, serverReason } from "./lib/api-client";
 import { openDownload } from "./lib/download";
 import { domainApi } from "./lib/domain-api";
 import { logError } from "./lib/log-error";
-import { PAGE_SIZE, loadAllPages } from "./lib/pagination";
+import { PAGE_SIZE, loadAllPages, loadDocumentWindows } from "./lib/pagination";
 import { settleResult, settledOutcome } from "./lib/settled";
 import {
   dateOnly,
@@ -269,6 +269,8 @@ function DocumentStore({ children }: { children: ReactNode }) {
   const [docsMeta, setDocsMeta] = useState<{ loaded: number; total: number }>({ loaded: 0, total: 0 });
   const [docsLoadingMore, setDocsLoadingMore] = useState(false);
   const docsPagesRef = useRef(1);
+  const docsCursorRef = useRef<string | null>(null);
+  const docsLoadMoreRef = useRef(false);
   const [docsReady, setDocsReady] = useState(!apiMode);
   const [approvals, setApprovals] = useState<ApprovalInstanceDto[]>([]);
   const [approvalsReady, setApprovalsReady] = useState(!apiMode);
@@ -321,7 +323,7 @@ function DocumentStore({ children }: { children: ReactNode }) {
       try {
         const results = await Promise.allSettled([
           docsApi.foldersTree(),
-          loadAllPages((page) => docsApi.listDocuments(page), { maxPages: 1 }),
+          loadDocumentWindows((after) => docsApi.listDocumentWindow(after, PAGE_SIZE), 1),
           loadAllPages((page) => docsApi.trashDocuments(page)),
           loadAllPages((page) => domainApi.retentionItems(page)),
           domainApi.holds(),
@@ -343,7 +345,7 @@ function DocumentStore({ children }: { children: ReactNode }) {
           return;
         }
         const emptyPage = { items: [] as never[], total: 0, truncated: true };
-        const documentsPage = settleResult(results[1]) ?? emptyPage;
+        const documentsPage = settleResult(results[1]) ?? { ...emptyPage, nextCursor: null };
         const trashPage = settleResult(results[2]) ?? emptyPage;
         const retentionPage = settleResult(results[3]) ?? emptyPage;
         const holdsPage = settleResult(results[4]) ?? { items: [] as never[] };
@@ -365,6 +367,7 @@ function DocumentStore({ children }: { children: ReactNode }) {
         setDocs((prev) =>
           remoteDocs.map((doc) => keepCachedVersions(doc, detailCacheRef.current.get(doc.id) ?? prev.find((d) => d.id === doc.id))),
         );
+        docsCursorRef.current = documentsPage.nextCursor;
         setDocsMeta({ loaded: remoteDocs.length, total: documentsPage.total });
         docsPagesRef.current = 1;
         setFolderList(withFolderCounts(tree.items.map(mapFolder), remoteDocs));
@@ -712,24 +715,27 @@ function DocumentStore({ children }: { children: ReactNode }) {
 
   const refetchDocuments = async () => {
     const [documentsPage, trashPage] = await Promise.all([
-      loadAllPages((page) => docsApi.listDocuments(page), { maxPages: docsPagesRef.current }),
+      loadDocumentWindows((after) => docsApi.listDocumentWindow(after, PAGE_SIZE), docsPagesRef.current),
       loadAllPages((page) => docsApi.trashDocuments(page)),
     ]);
     const remoteDocs = documentsPage.items.map(mapDocument);
     setDocs((prev) =>
       remoteDocs.map((doc) => keepCachedVersions(doc, detailCacheRef.current.get(doc.id) ?? prev.find((d) => d.id === doc.id))),
     );
+    docsCursorRef.current = documentsPage.nextCursor;
     setDocsMeta({ loaded: remoteDocs.length, total: documentsPage.total });
     setFolderList((prev) => withFolderCounts(prev, remoteDocs));
     setTrash(trashPage.items.map(mapTrashItem));
   };
 
   const loadMoreDocuments = async () => {
-    if (!apiMode || docsLoadingMore) return;
+    const after = docsCursorRef.current;
+    if (!apiMode || !after || docsLoadMoreRef.current) return;
+    docsLoadMoreRef.current = true;
     setDocsLoadingMore(true);
     try {
-      const page = docsPagesRef.current + 1;
-      const result = await docsApi.listDocuments({ page, pageSize: PAGE_SIZE });
+      const result = await docsApi.listDocumentWindow(after, PAGE_SIZE);
+      if (docsCursorRef.current !== after) return;
       const remoteDocs = result.items.map(mapDocument);
       setDocs((prev) => {
         const known = new Set(prev.map((doc) => doc.id));
@@ -741,11 +747,17 @@ function DocumentStore({ children }: { children: ReactNode }) {
         }
         return merged;
       });
-      docsPagesRef.current = page;
-      setDocsMeta((prev) => ({ loaded: Math.min(result.meta.total, prev.loaded + remoteDocs.length), total: result.meta.total }));
+      docsPagesRef.current++;
+      docsCursorRef.current = result.meta.nextCursor;
+      setDocsMeta((prev) => {
+        const loaded = prev.loaded + remoteDocs.length;
+        const total = result.meta.nextCursor ? Math.max(prev.total, loaded + 1) : loaded;
+        return { loaded, total };
+      });
     } catch (error) {
       reportApiError(error);
     } finally {
+      docsLoadMoreRef.current = false;
       setDocsLoadingMore(false);
     }
   };
@@ -753,12 +765,13 @@ function DocumentStore({ children }: { children: ReactNode }) {
   const refetchTasks = async () => {
     const [taskPage, documentsPage] = await Promise.all([
       domainApi.tasks(),
-      loadAllPages((page) => docsApi.listDocuments(page), { maxPages: docsPagesRef.current }),
+      loadDocumentWindows((after) => docsApi.listDocumentWindow(after, PAGE_SIZE), docsPagesRef.current),
     ]);
     const remoteDocs = documentsPage.items.map(mapDocument);
     setDocs((prev) =>
       remoteDocs.map((doc) => keepCachedVersions(doc, detailCacheRef.current.get(doc.id) ?? prev.find((d) => d.id === doc.id))),
     );
+    docsCursorRef.current = documentsPage.nextCursor;
     setDocsMeta({ loaded: remoteDocs.length, total: documentsPage.total });
     setTaskList(taskPage.items.map((task) => mapTask(task, remoteDocs, apiUsers)));
   };
@@ -777,13 +790,14 @@ function DocumentStore({ children }: { children: ReactNode }) {
     if (!apiMode) return;
     const [approvalPage, documentsPage] = await Promise.all([
       domainApi.pendingApprovals(),
-      loadAllPages((page) => docsApi.listDocuments(page), { maxPages: docsPagesRef.current }),
+      loadDocumentWindows((after) => docsApi.listDocumentWindow(after, PAGE_SIZE), docsPagesRef.current),
     ]);
     setApprovals(approvalPage.items);
     const remoteDocs = documentsPage.items.map(mapDocument);
     setDocs((prev) =>
       remoteDocs.map((doc) => keepCachedVersions(doc, detailCacheRef.current.get(doc.id) ?? prev.find((d) => d.id === doc.id))),
     );
+    docsCursorRef.current = documentsPage.nextCursor;
     setDocsMeta({ loaded: remoteDocs.length, total: documentsPage.total });
   }, [apiMode, setApprovals, setDocs]);
 
@@ -1389,7 +1403,7 @@ function DocumentStore({ children }: { children: ReactNode }) {
   const refetchRetention = async () => {
     const [retentionPage, docsPage, holdsPage] = await Promise.all([
       loadAllPages((page) => domainApi.retentionItems(page)),
-      loadAllPages((page) => docsApi.listDocuments(page), { maxPages: docsPagesRef.current }),
+      loadDocumentWindows((after) => docsApi.listDocumentWindow(after, PAGE_SIZE), docsPagesRef.current),
       domainApi.holds(),
     ]);
     const activeHoldDocs = new Set(
@@ -1401,6 +1415,7 @@ function DocumentStore({ children }: { children: ReactNode }) {
     setDocs((prev) =>
       remoteDocs.map((doc) => keepCachedVersions(doc, detailCacheRef.current.get(doc.id) ?? prev.find((d) => d.id === doc.id))),
     );
+    docsCursorRef.current = docsPage.nextCursor;
     setDocsMeta({ loaded: remoteDocs.length, total: docsPage.total });
     setFolderList((prev) => withFolderCounts(prev, remoteDocs));
   };
