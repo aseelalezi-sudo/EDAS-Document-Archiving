@@ -527,9 +527,8 @@ export class FilesService {
       SELECT id, "docNo", "currentVersion", status, "versionCount", "currentFlags", "flaggedVersion",
              COUNT(*) OVER ()::int AS "totalCount"
       FROM stats
-      WHERE "versionCount" <> "currentVersion"
-         OR "currentFlags" <> 1
-         OR COALESCE("flaggedVersion", -1) <> "currentVersion"
+      WHERE (status = 'DISPOSED' AND "versionCount" > 0)
+         OR (status <> 'DISPOSED' AND ("currentFlags" <> 1 OR "flaggedVersion" IS DISTINCT FROM "currentVersion"))
       ORDER BY "docNo"
       LIMIT ${INTEGRITY_LIST_LIMIT}
     `;

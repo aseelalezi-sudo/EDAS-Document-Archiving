@@ -4,10 +4,11 @@ import { ROLE_CAPABILITIES } from "@edas/shared";
 import { RolesService } from "./roles.service";
 
 function buildService() {
-  const prisma = {
+  const db = {
     rolePolicy: { findMany: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn() },
     user: { groupBy: vi.fn(), count: vi.fn() },
   };
+  const prisma = { ...db, $transaction: vi.fn(async (run: (tx: typeof db) => Promise<unknown>) => run(db)) };
   const access = { resolveActor: vi.fn() };
   const audit = { record: vi.fn() };
   const service = new RolesService(prisma as never, access as never, audit as never);
@@ -56,7 +57,7 @@ describe("RolesService", () => {
       userCount: 3,
       updatedAt: "2026-10-22T10:00:00.000Z",
     });
-    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.update", entityId: "AUDITOR" }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.update", entityId: "AUDITOR" }), expect.objectContaining({rolePolicy: prisma.rolePolicy}));
   });
 
   it("restores the shared defaults on reset", async () => {
@@ -69,7 +70,7 @@ describe("RolesService", () => {
 
     expect(result.customized).toBe(false);
     expect(result.actions).toEqual([...ROLE_CAPABILITIES.AUDITOR]);
-    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.reset" }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.reset" }), expect.objectContaining({rolePolicy: prisma.rolePolicy}));
   });
 
   it("rejects unknown roles, fixed admin capabilities, and a missing VIEW permission", async () => {
@@ -120,7 +121,7 @@ describe("RolesService", () => {
         update: expect.objectContaining({ updatedById: null }),
       }),
     );
-    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.update", actorId: null }));
-    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.reset", actorId: null }));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.update", actorId: null }), expect.objectContaining({rolePolicy: prisma.rolePolicy}));
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "role.reset", actorId: null }), expect.objectContaining({rolePolicy: prisma.rolePolicy}));
   });
 });

@@ -34,6 +34,8 @@ const mocks = vi.hoisted(() => ({
     putFolderAcl: vi.fn(),
     listDocuments: vi.fn(),
     trashDocuments: vi.fn(),
+    trashIds: vi.fn(),
+    purgeTrash: vi.fn(),
     getDocument: vi.fn(),
     createDocument: vi.fn(),
     updateDocument: vi.fn(),
@@ -521,6 +523,7 @@ beforeEach(() => {
   mocks.docs.listDocuments.mockImplementation((query: { page?: number } = {}) =>
     (query.page ?? 1) === 1 ? page([docDto()], 2, 1) : page([docDto({ id: "doc-api-2", docNo: "EDAS-2026002", title: "عقد ثانٍ" })], 2, 2),
   );
+  mocks.docs.trashIds.mockResolvedValue(["doc-api-1"]);
   mocks.docs.trashDocuments.mockImplementation(() => page([trashDto()], 1));
   mocks.docs.getDocument.mockResolvedValue(detailDto());
   mocks.docs.createDocument.mockResolvedValue(docDto({ id: "doc-new", title: "وثيقة جديدة" }));
@@ -848,6 +851,22 @@ describe("documents store actions over the API", () => {
     expect(result.current.app.toasts.filter((entry) => entry.type === "warning")).toHaveLength(2);
   });
 
+  it("processes every confirmed ID beyond 2,000 even if a held item fails", async () => {
+    const { result } = await booted();
+    const ids = Array.from({ length: 2003 }, (_, i) => "trash-" + i);
+    mocks.docs.trashIds.mockResolvedValue(ids);
+    mocks.docs.purgeTrash.mockImplementation(async (batch: string[]) => ({
+      failed: batch.includes(ids[3]) ? 1 : 0,
+      storageErrors: 0,
+    }));
+    await act(async () => {
+      expect(await result.current.docs.emptyTrash()).toBe(false);
+    });
+    expect(mocks.docs.purgeTrash.mock.calls.flatMap(([batch]) => batch)).toEqual(ids);
+    expect(mocks.docs.purgeTrash).toHaveBeenCalledTimes(81);
+    expect(result.current.app.toasts.some((entry) => entry.message?.includes("2002"))).toBe(true);
+  });
+
   it("restores, purges and empties the trash", async () => {
     const { result } = await booted();
 
@@ -863,7 +882,7 @@ describe("documents store actions over the API", () => {
     });
     expect(purged).toBe(true);
 
-    mocks.docs.purgeDocument.mockRejectedValue(new Error("purge down"));
+    mocks.docs.purgeTrash.mockRejectedValue(new Error("purge down"));
     let emptied = true;
     await act(async () => {
       emptied = await result.current.docs.emptyTrash();

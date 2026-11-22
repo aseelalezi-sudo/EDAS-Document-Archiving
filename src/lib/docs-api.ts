@@ -85,6 +85,8 @@ export const docsApi = {
   putFolderAcl: (id: string, rules: AclRuleInput[]) => client.put<AclRuleDto[]>(`/folders/${id}/acl`, { rules }),
 
   listDocuments: (params: ListDocumentsParams = {}) => client.listDocuments(params),
+  purgeTrash: (ids: string[]) => client.post<{ failed: number; storageErrors: number }>("/documents/trash/purge", { ids }),
+  trashIds: () => client.get<string[]>("/documents/trash/ids"),
   trashDocuments: (params: ListDocumentsParams = {}) =>
     client.get<Paginated<DocumentDto>>("/documents/trash", {
       query: params as unknown as Record<string, string | number | boolean | undefined>,

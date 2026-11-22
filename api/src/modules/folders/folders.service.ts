@@ -74,31 +74,36 @@ export class FoldersService {
     const sectionId = global ? (parentSectionId ?? dto.sectionId) : (actor.sectionId ?? undefined);
 
     const id = randomUUID();
-    const folder = await this.prisma.folder.create({
-      data: {
-        id,
-        name: dto.name,
-        nameEn: dto.nameEn,
-        type: dto.type ?? FolderType.DEPARTMENT,
-        scope: dto.scope,
-        parentId: dto.parentId,
-        departmentId,
-        sectionId,
-        ownerId: actor.id,
-        projectId: dto.projectId,
-        path: `${path}${id}/`,
-      },
-    });
+    return this.prisma.$transaction(async (tx) => {
+      const folder = await tx.folder.create({
+        data: {
+          id,
+          name: dto.name,
+          nameEn: dto.nameEn,
+          type: dto.type ?? FolderType.DEPARTMENT,
+          scope: dto.scope,
+          parentId: dto.parentId,
+          departmentId,
+          sectionId,
+          ownerId: actor.id,
+          projectId: dto.projectId,
+          path: `${path}${id}/`,
+        },
+      });
 
-    await this.audit.record({
-      action: "folder.create",
-      entityType: "Folder",
-      entityId: folder.id,
-      actorId: actor.id,
-      departmentId: folder.departmentId,
-      detail: { name: folder.name, parentId: folder.parentId },
+      await this.audit.record(
+        {
+          action: "folder.create",
+          entityType: "Folder",
+          entityId: folder.id,
+          actorId: actor.id,
+          departmentId: folder.departmentId,
+          detail: { name: folder.name, parentId: folder.parentId },
+        },
+        tx,
+      );
+      return folder;
     });
-    return folder;
   }
 
   async update(principal: Principal, id: string, dto: UpdateFolderDto) {
@@ -108,19 +113,24 @@ export class FoldersService {
     if (changesScope && !this.access.isGlobal(actor) && !canManageAcl(actor.role as unknown as SharedRole)) {
       throw new ForbiddenException("Missing permission: MANAGE_SCOPE");
     }
-    const folder = await this.prisma.folder.update({
-      where: { id },
-      data: { name: dto.name, nameEn: dto.nameEn, scope: dto.scope, aclInherit: dto.aclInherit },
+    return this.prisma.$transaction(async (tx) => {
+      const folder = await tx.folder.update({
+        where: { id },
+        data: { name: dto.name, nameEn: dto.nameEn, scope: dto.scope, aclInherit: dto.aclInherit },
+      });
+      await this.audit.record(
+        {
+          action: "folder.update",
+          entityType: "Folder",
+          entityId: id,
+          actorId: actor.id,
+          departmentId: folder.departmentId,
+          detail: { ...dto },
+        },
+        tx,
+      );
+      return folder;
     });
-    await this.audit.record({
-      action: "folder.update",
-      entityType: "Folder",
-      entityId: id,
-      actorId: actor.id,
-      departmentId: folder.departmentId,
-      detail: { ...dto },
-    });
-    return folder;
   }
 
   async remove(principal: Principal, id: string) {
@@ -135,11 +145,11 @@ export class FoldersService {
       throw new BadRequestException("Folder is not empty");
     }
 
-    await this.prisma.$transaction([
-      this.prisma.aclRule.deleteMany({ where: { folderId: id } }),
-      this.prisma.folder.delete({ where: { id } }),
-    ]);
-    await this.audit.record({ action: "folder.delete", entityType: "Folder", entityId: id, actorId: actor.id });
+    await this.prisma.$transaction(async (tx) => {
+      await tx.aclRule.deleteMany({ where: { folderId: id } });
+      await tx.folder.delete({ where: { id } });
+      await this.audit.record({ action: "folder.delete", entityType: "Folder", entityId: id, actorId: actor.id }, tx);
+    });
     return { id, deleted: true };
   }
 
@@ -165,9 +175,9 @@ export class FoldersService {
     if (!canManageAcl(actor.role as unknown as SharedRole)) throw new ForbiddenException("Missing permission: MANAGE_ACL");
     await this.ensureExists(id);
 
-    await this.prisma.$transaction([
-      this.prisma.aclRule.deleteMany({ where: { folderId: id } }),
-      this.prisma.aclRule.createMany({
+    return this.prisma.$transaction(async (tx) => {
+      await tx.aclRule.deleteMany({ where: { folderId: id } });
+      await tx.aclRule.createMany({
         data: dto.rules.map((rule) => ({
           folderId: id,
           principalType: rule.principalType,
@@ -176,20 +186,23 @@ export class FoldersService {
           effect: rule.effect ?? AclEffect.ALLOW,
         })),
         skipDuplicates: true,
-      }),
-    ]);
+      });
 
-    await this.audit.record({
-      action: "folder.acl.update",
-      entityType: "Folder",
-      entityId: id,
-      actorId: actor.id,
-      detail: {
-        rules: dto.rules.length,
-        effect: dto.rules.map((rule) => `${rule.principalType}:${rule.principalId}:${rule.effect ?? "ALLOW"}`),
-      },
+      await this.audit.record(
+        {
+          action: "folder.acl.update",
+          entityType: "Folder",
+          entityId: id,
+          actorId: actor.id,
+          detail: {
+            rules: dto.rules.length,
+            effect: dto.rules.map((rule) => `${rule.principalType}:${rule.principalId}:${rule.effect ?? "ALLOW"}`),
+          },
+        },
+        tx,
+      );
+      return tx.aclRule.findMany({ where: { folderId: id }, orderBy: { createdAt: "asc" } });
     });
-    return this.prisma.aclRule.findMany({ where: { folderId: id }, orderBy: { createdAt: "asc" } });
   }
 
   private async ensureExists(id: string): Promise<Folder> {

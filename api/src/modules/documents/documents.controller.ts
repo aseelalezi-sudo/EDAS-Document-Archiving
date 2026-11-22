@@ -5,6 +5,7 @@ import { DocumentsService } from "./documents.service";
 import { AddVersionDto } from "./dto/add-version.dto";
 import { CreateDocumentDto } from "./dto/create-document.dto";
 import { ListDocumentsQuery } from "./dto/list-documents.query";
+import { PurgeTrashDto } from "./dto/purge-trash.dto";
 import { UpdateDocumentDto } from "./dto/update-document.dto";
 
 @Controller("documents")
@@ -19,6 +20,16 @@ export class DocumentsController {
   @Get("trash")
   trash(@CurrentUser() principal: Principal, @Query() query: ListDocumentsQuery) {
     return this.documents.trash(principal, query);
+  }
+
+  @Get("trash/ids")
+  trashIds(@CurrentUser() principal: Principal) {
+    return this.documents.trashIds(principal);
+  }
+
+  @Post("trash/purge")
+  purgeTrash(@CurrentUser() principal: Principal, @Body() dto: PurgeTrashDto) {
+    return this.documents.purgeTrash(principal, dto.ids);
   }
 
   @Get(":id")
