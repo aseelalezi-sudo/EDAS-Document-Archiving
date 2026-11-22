@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 
 const [mode, path] = process.argv.slice(2);
 const base = `http://127.0.0.1:${process.env.PORT}/api/v1`;
@@ -43,7 +44,14 @@ if (mode === "create") {
   const originalName = "restore-fixture.pdf";
   const mimeType = "application/pdf";
   const title = `Recovery fixture ${randomUUID()}`;
-  const bytes = Buffer.from(`%PDF-1.7\n% ${title}\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n`);
+  const requireApi = createRequire(new URL("../../api/package.json", import.meta.url));
+  const PdfDocument = requireApi("pdfkit");
+  const pdf = new PdfDocument();
+  pdf.text(title);
+  pdf.end();
+  const chunks = [];
+  for await (const chunk of pdf) chunks.push(chunk);
+  const bytes = Buffer.concat(chunks);
   const sizeBytes = bytes.length;
   const checksumSha256 = sha256(bytes);
   const { url, storageKey } = await api("/files/presign-upload", { fileName: originalName, mimeType, sizeBytes });
@@ -57,7 +65,9 @@ if (mode === "create") {
   const { id, fileId, title, checksumSha256 } = JSON.parse(await readFile(path, "utf8"));
   const doc = await api(`/documents/${id}`);
   assert.equal(doc.title, title, "Restored PostgreSQL must contain the original document");
-  assert.equal(doc.versions[0].file.id, fileId, "Restored version must point to the original file");
+  const currentFile = doc.versions.find((version) => version.isCurrent)?.file;
+  assert.equal(currentFile?.id, fileId, "Restored current version must point to the original file");
+  assert.equal(currentFile.checksumSha256, checksumSha256, "Restored file metadata must retain the original checksum");
 
   const { url } = await api(`/files/${fileId}/download`);
   const download = await request(url);
