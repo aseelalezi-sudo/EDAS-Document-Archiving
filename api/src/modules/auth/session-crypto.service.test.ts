@@ -19,7 +19,9 @@ describe("SessionCryptoService", () => {
   it("rejects a tampered payload instead of returning garbage", () => {
     const crypto = new SessionCryptoService(config({ SESSION_SECRET: "b".repeat(32) }));
     const sealed = crypto.seal({ value: "secret" });
-    const tampered = `${sealed.slice(0, -2)}AA`;
+    const bytes = Buffer.from(sealed, "base64url");
+    bytes[bytes.length - 1] ^= 1;
+    const tampered = bytes.toString("base64url");
 
     expect(crypto.open(tampered)).toBeNull();
     expect(crypto.open(null)).toBeNull();
