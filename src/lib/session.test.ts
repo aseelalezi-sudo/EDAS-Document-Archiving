@@ -51,7 +51,16 @@ describe("beginLogin", () => {
 });
 
 describe("restoreSession", () => {
+  it("skips the probe when no session cookie hint exists", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(restoreSession()).resolves.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("resolves the profile from the session cookie", async () => {
+    document.cookie = "edas_csrf=csrf-token; path=/";
     const fetchMock = vi.fn().mockResolvedValue(json({ data: profile }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -61,6 +70,7 @@ describe("restoreSession", () => {
   });
 
   it("returns null when the session is gone", async () => {
+    document.cookie = "edas_csrf=csrf-token; path=/";
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(json({ error: { code: "UNAUTHORIZED", message: "expired" }, correlationId: null }, 401)),
@@ -70,6 +80,7 @@ describe("restoreSession", () => {
   });
 
   it("returns null when the API is unreachable", async () => {
+    document.cookie = "edas_csrf=csrf-token; path=/";
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 
     await expect(restoreSession()).resolves.toBeNull();

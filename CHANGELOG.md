@@ -62,6 +62,7 @@ The first security-hardened pre-production baseline.
 
 ### Fixed
 
+- The login screen no longer probes `/auth/me` before a session exists, removing the expected `401` from the browser console.
 - Report run history opened an empty list instead of the run log.
 - Six ESLint warnings in shared UI hooks and policy editor effects.
 - New user accounts could be created with a five-digit employee number, which broke the `EMP-\d{4}` expectation in the admin-users test.

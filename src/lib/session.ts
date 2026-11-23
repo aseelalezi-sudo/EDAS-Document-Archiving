@@ -13,7 +13,18 @@ export function beginLogin(returnTo = "/dashboard"): string {
   return `${base}/api/v1/auth/login?returnTo=${encodeURIComponent(target)}`;
 }
 
+const CSRF_COOKIE = "edas_csrf";
+
+function hasSessionHint(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.cookie.split(";").some((part) => {
+    const cookie = part.trim();
+    return cookie.startsWith(`${CSRF_COOKIE}=`) && cookie.length > CSRF_COOKIE.length + 1;
+  });
+}
+
 export async function restoreSession(): Promise<ProfileDto | null> {
+  if (!hasSessionHint()) return null;
   try {
     return await apiRequest<ProfileDto>("/auth/me");
   } catch {
