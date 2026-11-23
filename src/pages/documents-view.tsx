@@ -186,6 +186,8 @@ export function DocumentDetails() {
               <>
                 <input
                   ref={versionInputRef}
+                  id="new-version-file"
+                  name="new-version-file"
                   type="file"
                   className="hidden"
                   aria-label={t("doc.newVersion")}

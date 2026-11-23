@@ -891,6 +891,9 @@ export function Library() {
           >
             <input
               ref={fileInputRef}
+              id="library-upload"
+              name="library-upload"
+              aria-label={t("doc.upload")}
               type="file"
               multiple
               accept={allowedExtensions.join(",")}

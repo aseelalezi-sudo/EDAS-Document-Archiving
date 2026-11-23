@@ -556,6 +556,9 @@ export function AssistantComposer({
         </button>
         <input
           ref={inputRef}
+          id="assistant-command"
+          name="assistant-command"
+          aria-label={L("أمر المساعد", "Assistant command")}
           value={value}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={(e) => {

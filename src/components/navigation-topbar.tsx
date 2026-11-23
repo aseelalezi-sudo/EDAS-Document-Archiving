@@ -132,6 +132,8 @@ export function Topbar({ onMenu }: { onMenu: () => void }) {
               />
               <input
                 ref={searchRef}
+                id="global-search"
+                name="global-search"
                 value={sq}
                 onChange={(e) => setSq(e.target.value)}
                 onFocus={() => setSearchFocus(true)}

@@ -223,6 +223,8 @@ export function NewDocument() {
                 </p>
                 <input
                   ref={fileInputRef}
+                  id="new-document-file"
+                  name="new-document-file"
                   type="file"
                   className="hidden"
                   aria-label={lang === "en" ? "Choose file" : "اختيار ملف"}

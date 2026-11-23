@@ -244,12 +244,16 @@ const fieldBase =
   "w-full rounded-xl border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-800 placeholder:text-ink-400 transition-all focus:border-navy-500 focus:outline-none focus:ring-4 focus:ring-navy-500/10 disabled:bg-ink-50 disabled:text-ink-400 dark:border-ink-700 dark:bg-ink-950 dark:text-ink-100 dark:placeholder:text-ink-500 dark:focus:border-navy-500";
 
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }>(function Input(
-  { className, invalid, ...props },
+  { className, invalid, id, name, ...props },
   ref,
 ) {
+  const generatedId = `field-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const fieldId = id ?? generatedId;
   return (
     <input
       ref={ref}
+      id={fieldId}
+      name={name ?? fieldId}
       className={cn(fieldBase, invalid && "border-rose-400 focus:border-rose-400 focus:ring-rose-500/15", className)}
       {...props}
     />
@@ -257,20 +261,26 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
 });
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea(
-  { className, ...props },
+  { className, id, name, ...props },
   ref,
 ) {
-  return <textarea ref={ref} className={cn(fieldBase, "min-h-20 resize-y", className)} {...props} />;
+  const generatedId = `field-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const fieldId = id ?? generatedId;
+  return <textarea ref={ref} id={fieldId} name={name ?? fieldId} className={cn(fieldBase, "min-h-20 resize-y", className)} {...props} />;
 });
 
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement>>(function Select(
-  { className, children, ...props },
+  { className, children, id, name, ...props },
   ref,
 ) {
+  const generatedId = `field-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  const fieldId = id ?? generatedId;
   return (
     <div className={cn("relative shrink-0", className)}>
       <select
         ref={ref}
+        id={fieldId}
+        name={name ?? fieldId}
         className={cn(fieldBase, "h-[42px] w-full cursor-pointer appearance-none overflow-hidden py-0 text-ellipsis pe-10", className)}
         {...props}
       >

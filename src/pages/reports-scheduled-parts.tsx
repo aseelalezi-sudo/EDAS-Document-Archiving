@@ -127,6 +127,8 @@ export function ScheduleReportModal({
         )}
         <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-ink-200 p-3.5 dark:border-ink-800">
           <input
+            id="schedule-active"
+            name="schedule-active"
             type="checkbox"
             checked={form.active}
             onChange={(e) => onFormChange({ ...form, active: e.target.checked })}

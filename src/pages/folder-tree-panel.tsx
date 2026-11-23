@@ -111,6 +111,9 @@ export function FolderTreePanel({
           <div className="relative">
             <Search className="pointer-events-none absolute start-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-ink-400" />
             <input
+              id="folder-filter"
+              name="folder-filter"
+              aria-label={lang === "en" ? "Filter folders" : "تصفية المجلدات"}
               value={treeSearch}
               onChange={(e) => setTreeSearch(e.target.value)}
               placeholder={lang === "en" ? "Filter folders…" : "تصفية المجلدات…"}

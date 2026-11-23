@@ -399,7 +399,10 @@ export function Employees() {
             </p>
             <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-lg bg-navy-600 px-3 py-1.5 text-xs font-bold text-white hover:bg-navy-700">
               <input
+                id="employee-import-file"
+                name="employee-import-file"
                 type="file"
+                aria-label={L("اختيار ملف", "Choose file")}
                 accept=".csv,text/csv"
                 className="hidden"
                 onChange={(e) => {

@@ -232,6 +232,24 @@ describe("form fields", () => {
     expect(screen.getByLabelText("الوصف")).toHaveValue("نص");
   });
 
+  it("generates an id and name for controls used without a Field", () => {
+    render(
+      <div>
+        <Input placeholder="بحث" />
+        <Textarea placeholder="ملاحظات" />
+        <Select defaultValue="a">
+          <option value="a">أ</option>
+        </Select>
+      </div>,
+      { wrapper },
+    );
+
+    for (const element of [screen.getByPlaceholderText("بحث"), screen.getByPlaceholderText("ملاحظات"), screen.getByRole("combobox")]) {
+      expect(element).toHaveAttribute("id");
+      expect(element).toHaveAttribute("name", element.getAttribute("id"));
+    }
+  });
+
   it("keeps a control's explicit id", () => {
     render(
       <Field label="العنوان">

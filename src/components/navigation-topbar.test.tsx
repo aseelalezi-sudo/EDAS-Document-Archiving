@@ -169,6 +169,7 @@ describe("the bars and badges", () => {
     expect(onMenu).toHaveBeenCalledTimes(1);
 
     expect(screen.getByRole("button", { name: AR["topbar.search"] })).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: AR["topbar.quickSearch"] })).toHaveAttribute("id", "global-search");
     expect(screen.getByRole("button", { name: AR["topbar.advanced"] })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: AR["doc.newDoc"] })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: AR["topbar.profile"] })).toHaveTextContent("سارة القحطاني");

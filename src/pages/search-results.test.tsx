@@ -449,6 +449,7 @@ describe("search results in English", () => {
 
     expect(screen.getByRole("heading", { name: "Search" })).toBeInTheDocument();
     expect(input("en")).toHaveAttribute("placeholder", "Search titles, numbers, owners, and content…");
+    expect(input("en")).toHaveAttribute("id", "search-results-query");
     expect(screen.getByRole("button", { name: "Save this search" })).toBeInTheDocument();
     expect(screen.getByText("Filters")).toBeInTheDocument();
     expect(screen.getByText("File type")).toBeInTheDocument();

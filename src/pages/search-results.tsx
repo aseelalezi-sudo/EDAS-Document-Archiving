@@ -287,6 +287,8 @@ export function SearchResults() {
           <SearchIcon className="pointer-events-none absolute start-4 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-400" />
           <input
             ref={inputRef}
+            id="search-results-query"
+            name="search-results-query"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder={lang === "en" ? "Search titles, numbers, owners, and content…" : "ابحث في العناوين والأرقام والمالكين والمحتوى…"}
