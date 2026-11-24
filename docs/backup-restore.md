@@ -77,6 +77,39 @@ pg_restore --clean --if-exists --no-owner -d edas /backups/base.dump
 
 يُقاس زمن الاستعادة وتُراجع صلاحية النسخ الفعلية في تدريب بيئة النشر.
 
+### تشغيل التدريب محليًا على منافذ بديلة
+
+كل منفذ في التدريب قابل للتغيير، فيمكن تشغيله على جهاز تعمل فيه بيئة تطوير كاملة دون إيقافها:
+
+| المتغير | الافتراضي (CI) | الغرض |
+| --- | --- | --- |
+| `DRILL_POSTGRES_PORT` | `55433` | منفذ PostgreSQL على المضيف |
+| `DRILL_MINIO_PORT` | `9000` | منفذ MinIO على المضيف |
+| `DRILL_KEYCLOAK_PORT` | `8080` | منفذ Keycloak على المضيف |
+| `DRILL_API_PORT` | `14210` | منفذ API الاختبار على المضيف |
+
+يحوّل السكربت المنافذ إلى `DATABASE_URL` و`KEYCLOAK_ISSUER` و`MINIO_PORT` و`MINIO_PUBLIC_PORT` و`API_PUBLIC_URL` ومنافذ Compose معًا، ويضبط `KC_HOSTNAME` على منفذ Keycloak المختار حتى يطابق `iss` في الرمز المميز عنوان المصدر الذي يتحقق منه الـAPI. يفحص السكربت المنافذ الأربعة قبل البدء ويفشل برسالة واضحة إذا كان أحدها مشغولًا.
+
+```bash
+DRILL_POSTGRES_PORT=54333 DRILL_MINIO_PORT=59000 DRILL_KEYCLOAK_PORT=18080 DRILL_API_PORT=14210 \
+  DRILL_ARTIFACTS_DIR="$HOME/edas-drill" bash scripts/backup/restore-drill.sh
+```
+
+- كل تشغيل ينشئ مشروعَي Compose باسم فريد (`edas-drill-source-<pid>-<run>` و`edas-drill-target-<pid>-<run>`) بأحجام جديدة، ثم يحذفهما في النهاية؛ لذلك لا تتراكم بيانات تشغيل سابق.
+- ملف البيئة الفارغ يُنشأ داخل مجلد العمل المؤقت بدل `/dev/null`، والمسارات تُحوَّل بـ`cygpath -m` عند توفره، فيعمل السكربت من Git Bash على Windows بدون `MSYS_NO_PATHCONV`.
+- قبل النسخة ينفّذ وضع `access-create` التحضير: ينشئ قسم `DRILL-ACCESS` ويسنده إلى حساب الموظف، ثم مجلدَي `PUBLIC` و`PRIVATE` ووثيقة في كل منهما، ويؤكد السماح (ظهور في القائمة وفتح وتنزيل ببصمة SHA-256 مطابقة) والمنع (غياب عن القائمة ورفض الفتح والتنزيل)، ويكتب معرّفي الوثيقتين وبصمتيهما في `access-fixture.json`.
+- بعد الاستعادة ينفّذ وضع `access-verify` الفحص نفسه على الوثيقتين المستعيدتين بالهوية نفسها، ويتأكد أن الحساب المخوّل ما زال يفتح الوثيقة المقيّدة وينزّلها ببصمة مطابقة؛ **لا تُنشأ وثائق ولا تُعدّل صلاحيات بعد الاستعادة**، والنتيجة في `access-after.json`.
+- يطبع السكربت `Restore to verified open: <n>s` من بداية الاستعادة حتى أول فتح موثّق، ويحفظ نسخًا من `MANIFEST` و`SHA256SUMS` والنسخة و`fixture.json` و`access-fixture.json` و`access-after.json` في `DRILL_ARTIFACTS_DIR`.
+
+### اختبار الحِمل المتكرر
+
+`bash scripts/backup/restore-drill.sh benchmark` يستخدم المشروع الجديد نفسه ثم يزرع `LOAD_DOCUMENTS` وثيقة قبل القياس. عدد الوثائق يُتحقق منه بدقة (`2 + documents - ⌊documents/100⌋`)؛ لأن كل تشغيل يبدأ بمشروع فارغ، ينجح التأكيد في التشغيلات المتتالية بدل أن يفشل بسبب وثائق رفعها تشغيل سابق.
+
+```bash
+LOAD_DOCUMENTS=20000 LOAD_CONCURRENCY=8 LOAD_DURATION_SECONDS=120 LOAD_REPORT="$PWD/load.json" \
+  bash scripts/backup/restore-drill.sh benchmark
+```
+
 ## المراقبة والتنبيه
 
 - تنبيه إذا تأخرت آخر نسخة ناجحة أكثر من 90 دقيقة.
