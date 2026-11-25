@@ -3,7 +3,7 @@
 # The script never stops a running stack and never deletes a backup older than RETENTION_DAYS.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ROOT="${ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="${BACKUP_DIR:-$ROOT/backups}/$STAMP"
 RETENTION_DAYS="${RETENTION_DAYS:-30}"
