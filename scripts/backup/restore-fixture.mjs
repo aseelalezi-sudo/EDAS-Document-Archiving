@@ -1,10 +1,40 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { resolve } from "node:path";
 
 const [mode, path, outPath] = process.argv.slice(2);
 const base = `http://127.0.0.1:${process.env.PORT}/api/v1`;
+
+function samePath(left, right) {
+  const first = resolve(left);
+  const second = resolve(right);
+  return process.platform === "win32" ? first.toLowerCase() === second.toLowerCase() : first === second;
+}
+
+async function assertAccessVerifyOutput(inputPath, outputPath) {
+  if (!inputPath) throw new Error("access-verify requires an input fixture path");
+  if (!outputPath?.trim()) throw new Error("access-verify requires an output path distinct from the input fixture");
+  if (samePath(inputPath, outputPath)) throw new Error("access-verify output path must differ from the input fixture path");
+  try {
+    await stat(outputPath);
+  } catch (error) {
+    if (error?.code === "ENOENT") return;
+    throw error;
+  }
+  throw new Error(`access-verify output already exists: ${outputPath}`);
+}
+
+async function writeAccessReport(outputPath, report) {
+  try {
+    await writeFile(outputPath, JSON.stringify(report, null, 2) + "\n", { mode: 0o600, flag: "wx" });
+  } catch (error) {
+    if (error?.code === "EEXIST") throw new Error(`access-verify output already exists: ${outputPath}`);
+    if (error?.code === "ENOENT") throw new Error(`access-verify output directory is missing: ${outputPath}`);
+    throw error;
+  }
+}
 
 async function request(url, options) {
   const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15_000) });
@@ -21,6 +51,8 @@ async function login(username, password) {
   assert(token, "Keycloak must issue an access token");
   return { Authorization: `Bearer ${token}` };
 }
+
+if (mode === "access-verify") await assertAccessVerifyOutput(path, outPath);
 
 const auth =
   mode === "employee" ? await login("employee", "employee") : await login(process.env.KEYCLOAK_ADMIN, process.env.KEYCLOAK_ADMIN_PASSWORD);
@@ -87,6 +119,14 @@ function downloadTarget(route) {
   return route.startsWith("http") ? route : `${new URL(base).origin}${route}`;
 }
 
+function isDeniedListResponse(result) {
+  if (result.status === 403) return true;
+  if (result.status !== 200) return false;
+  const items = result.data?.items;
+  const total = result.data?.meta?.total;
+  return total === 0 && Array.isArray(items) && items.length === 0;
+}
+
 async function probeAccess(employeeAuth, allowed, restricted) {
   const allowedList = await raw(`/documents?folderId=${allowed.folderId}&pageSize=25`, employeeAuth);
   const restrictedList = await raw(`/documents?folderId=${restricted.folderId}&pageSize=25`, employeeAuth);
@@ -103,6 +143,8 @@ async function probeAccess(employeeAuth, allowed, restricted) {
 
   const allowedItems = allowedList.data?.items;
   const allowedListed = Array.isArray(allowedItems) && allowedItems.some((item) => item.id === allowed.id);
+  const restrictedItems = restrictedList.data?.items;
+  const restrictedListed = isDeniedListResponse(restrictedList);
 
   const report = {
     allowed: {
@@ -116,6 +158,8 @@ async function probeAccess(employeeAuth, allowed, restricted) {
     restricted: {
       listStatus: restrictedList.status,
       listTotal: restrictedList.data?.meta?.total ?? null,
+      listItemCount: Array.isArray(restrictedItems) ? restrictedItems.length : null,
+      listDenied: restrictedListed,
       openStatus: restrictedOpen.status,
       downloadStatus: restrictedDownload.status,
     },
@@ -128,7 +172,7 @@ async function probeAccess(employeeAuth, allowed, restricted) {
       report.allowed.downloadStatus === 200 &&
       report.allowed.downloadChecksumMatches,
     deny:
-      (report.restricted.listStatus === 403 || (report.restricted.listStatus === 200 && (report.restricted.listTotal ?? 0) === 0)) &&
+      report.restricted.listDenied &&
       [403, 404].includes(report.restricted.openStatus) &&
       [403, 404].includes(report.restricted.downloadStatus),
   };
@@ -255,7 +299,7 @@ if (mode === "employee") {
     restrictedViaAdmin,
     verdict: { allow: after.verdict.allow, deny: after.verdict.deny && restrictedViaAdmin.checksumMatches },
   };
-  await writeFile(outPath ?? path, JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+  await writeAccessReport(outPath, report);
   console.log(JSON.stringify(report, null, 2));
   assert.ok(report.verdict.allow, "After the restore the employee must see, open and download the PUBLIC document");
   assert.ok(report.verdict.deny, "After the restore the employee must not see, open or download the PRIVATE document, while the authorized account still can");
